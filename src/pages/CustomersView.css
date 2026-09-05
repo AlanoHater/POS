@@ -1,0 +1,25 @@
+/* Clientes: lista en tarjeta + panel lateral de alta/edicion */
+
+.customers-name {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.customers-name > div { min-width: 0; }
+.customers-name strong { font-weight: 500; display: block; }
+
+.customers-address {
+  display: block;
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.customers-card { padding: 0 var(--sp-2); }
+.customers-card .table th:first-child,
+.customers-card .table td:first-child { padding-left: var(--sp-4); }
+.customers-card .table tbody tr:last-child td { border-bottom: 0; }
+
+.customers-count { font-size: var(--fs-sm); color: var(--ink-3); }

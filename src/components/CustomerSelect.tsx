@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, Customer } from '../api/client';
+import { Icon } from './ui';
 
 type Props = {
   customers: Customer[];
@@ -8,7 +9,7 @@ type Props = {
   onCustomersChanged?: () => Promise<void> | void;
 };
 
-const WALK_IN = { id: '0', name: 'Walk-in', phone: '', email: '', address: '' };
+const WALK_IN = { id: '0', name: 'Publico en general', phone: '', email: '', address: '' };
 
 export default function CustomerSelect({
   customers,
@@ -27,6 +28,7 @@ export default function CustomerSelect({
   const [newPhone, setNewPhone] = useState('');
 
   const list = useMemo(() => {
+    // 'Walk-in Customer' es el cliente semilla de la base: se muestra como Publico en general.
     return customers.filter((c) => c.name !== 'Walk-in Customer');
   }, [customers]);
 
@@ -55,7 +57,7 @@ export default function CustomerSelect({
             (c.phone || '').toLowerCase().includes(q) ||
             (c.email || '').toLowerCase().includes(q)
         );
-    if (!q || 'walk-in'.includes(q) || 'walk in'.includes(q)) {
+    if (!q || 'publico en general'.includes(q) || 'general'.includes(q)) {
       return [walkIn, ...matches];
     }
     return matches;
@@ -83,7 +85,7 @@ export default function CustomerSelect({
 
   const quickAdd = async () => {
     if (!newName.trim()) {
-      setError('Name is required');
+      setError('El nombre es obligatorio');
       return;
     }
     setBusy(true);
@@ -109,7 +111,7 @@ export default function CustomerSelect({
         setOpen(false);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not add customer');
+      setError(err instanceof Error ? err.message : 'No se pudo agregar el cliente');
     } finally {
       setBusy(false);
     }
@@ -124,13 +126,18 @@ export default function CustomerSelect({
           setOpen((v) => !v);
           setTimeout(() => inputRef.current?.focus(), 0);
         }}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Cliente: ${selected.name}`}
       >
         <span className="customer-avatar">{selected.name.slice(0, 1).toUpperCase()}</span>
         <span className="customer-meta">
           <strong>{selected.name}</strong>
-          <span>{selected.phone || (selected.id === '0' ? 'No account' : 'No phone')}</span>
+          <span>{selected.phone || (selected.id === '0' ? 'Sin cuenta' : 'Sin telefono')}</span>
         </span>
-        <span className="customer-caret">▾</span>
+        <span className="customer-caret">
+          <Icon name="chevron-down" size={16} />
+        </span>
       </button>
 
       {open && (
@@ -140,7 +147,8 @@ export default function CustomerSelect({
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name or phone…"
+              placeholder="Busca por nombre o telefono…"
+              aria-label="Buscar cliente"
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                   setOpen(false);
@@ -154,7 +162,7 @@ export default function CustomerSelect({
             />
           </div>
 
-          {error && <div className="error" style={{ margin: '0.5rem 0.65rem' }}>{error}</div>}
+          {error && <div className="error customer-error">{error}</div>}
 
           <div className="customer-options">
             {filtered.map((c) => (
@@ -169,15 +177,11 @@ export default function CustomerSelect({
                 </span>
                 <span className="customer-meta">
                   <strong>{c.name}</strong>
-                  <span>{c.phone || (String(c.id) === '0' ? 'Default guest' : 'No phone')}</span>
+                  <span>{c.phone || (String(c.id) === '0' ? 'Cliente por defecto' : 'Sin telefono')}</span>
                 </span>
               </button>
             ))}
-            {!filtered.length && (
-              <div className="empty" style={{ padding: '0.85rem' }}>
-                No matches
-              </div>
-            )}
+            {!filtered.length && <div className="empty customer-empty">Sin resultados</div>}
           </div>
 
           {!showQuickAdd ? (
@@ -189,40 +193,42 @@ export default function CustomerSelect({
                 setNewName(query.trim());
               }}
             >
-              + New customer
+              <Icon name="plus" size={16} />
+              Nuevo cliente
             </button>
           ) : (
             <div className="customer-quick-add">
               <input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Customer name"
+                placeholder="Nombre del cliente"
+                aria-label="Nombre del cliente"
                 autoFocus
               />
               <input
                 value={newPhone}
                 onChange={(e) => setNewPhone(e.target.value)}
-                placeholder="Phone (optional)"
+                placeholder="Telefono (opcional)"
+                aria-label="Telefono (opcional)"
               />
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <div className="customer-quick-add-actions">
                 <button
                   type="button"
-                  className="btn btn-primary"
+                  className="btn btn-soft"
                   disabled={busy}
                   onClick={quickAdd}
-                  style={{ flex: 1 }}
                 >
-                  {busy ? 'Saving…' : 'Add & select'}
+                  {busy ? 'Guardando…' : 'Agregar y elegir'}
                 </button>
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn-ghost"
                   onClick={() => {
                     setShowQuickAdd(false);
                     setError(null);
                   }}
                 >
-                  Cancel
+                  Cancelar
                 </button>
               </div>
             </div>

@@ -44,8 +44,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setServerError(
         info.mode === 'Network Point of Sale Terminal'
-          ? `Cannot reach server at ${info.serverIp || '(no IP set)'}. Check Network Server IP in settings.`
-          : 'Local API server is not responding. Prefer the Electron app window from `npm run dev`.'
+          ? `No se puede contactar al servidor en ${info.serverIp || '(sin IP configurada)'}. Revisa la IP del servidor en Ajustes.`
+          : 'El servidor local no responde. Usa la ventana de la aplicacion que abre `npm run dev`.'
       );
     }
     return info;
@@ -119,6 +119,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  if (!ctx) throw new Error('useAuth debe usarse dentro de AuthProvider');
   return ctx;
 }

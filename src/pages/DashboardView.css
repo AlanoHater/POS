@@ -1,0 +1,37 @@
+/* Panel: barra de herramientas, indicadores y tarjetas. Los tokens viven en index.css. */
+
+/* El contenedor ya separa con gap; la barra no necesita margen propio. */
+.dashboard > .toolbar { margin-bottom: 0; }
+
+/* El bloque de filtros vive dentro de la barra: la cabecera queda en linea con
+   los chips y el cuerpo, al abrirse, ocupa una fila completa debajo. */
+.dash-bar .disclosure { display: contents; }
+.dash-bar .disclosure-bar { display: contents; }
+.dash-bar .disclosure-body { flex-basis: 100%; order: 10; margin-top: 0; }
+.dash-bar .disclosure-body .filters .field { min-width: 170px; }
+
+/* Bloques que solo existen en papel */
+.print-detail { display: none; }
+.print-block { margin-top: 14px; break-inside: avoid; }
+.print-block h3 { font-size: 13px; margin: 0 0 6px; }
+@media print {
+  .print-detail { display: block; }
+  .print-block .rank-list { gap: 6px; }
+}
+
+/* Indicador principal */
+.kpi-card.hero { background: var(--accent-soft); border-color: var(--accent-soft-2); }
+.kpi-card.hero .kpi-label { color: var(--accent-ink); }
+.kpi-card.hero .kpi-value { font-size: var(--fs-3xl); color: var(--accent-ink); }
+
+/* Indicadores secundarios: la tarjeta ya trae relleno. */
+.stat-card { padding: var(--sp-3) var(--sp-5); }
+.stat-card .stat-strip { padding: 0; }
+
+/* Ranking */
+.rank-foot { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
+.rank-foot .muted { font-size: var(--fs-xs); color: var(--ink-3); }
+.dash-card header .segmented { flex-shrink: 0; }
+
+/* Inventario */
+.inventory-table td .stock-badge { font-variant-numeric: tabular-nums; }

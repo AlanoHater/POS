@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, session } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -179,6 +179,11 @@ ipcMain.on('app-reload', () => {
 });
 
 app.whenReady().then(async () => {
+  // El escaner de codigos de barras necesita la camara; el resto de permisos se niega.
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'media');
+  });
+
   const paths = getUserDataPaths();
   ensureDirs(paths);
   const config = readLocalConfig(paths);

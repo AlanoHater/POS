@@ -1,12 +1,21 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getPosBridge } from '../bridge';
+import { Disclosure, Icon } from '../components/ui';
+import './LoginPage.css';
 
 const MODES = [
   'Standalone Point of Sale',
   'Network Point of Sale Server',
   'Network Point of Sale Terminal',
 ] as const;
+
+/** Etiquetas visibles; los valores guardados siguen siendo los originales. */
+const MODE_LABELS: Record<string, string> = {
+  'Standalone Point of Sale': 'Independiente',
+  'Network Point of Sale Server': 'Servidor de red',
+  'Network Point of Sale Terminal': 'Terminal de red',
+};
 
 export default function LoginPage() {
   const { login, serverError, apiInfo, refreshApiInfo } = useAuth();
@@ -27,7 +36,7 @@ export default function LoginPage() {
       await refreshApiInfo();
       await login(username.trim(), password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'No se pudo iniciar sesion');
     } finally {
       setBusy(false);
     }
@@ -40,7 +49,7 @@ export default function LoginPage() {
       serverIp,
       till: apiInfo?.till || 1,
     });
-    setConnMsg('Saved. Restart if you switched Server / Terminal mode.');
+    setConnMsg('Guardado. Reinicia la aplicacion si cambiaste el modo Servidor / Terminal.');
     await refreshApiInfo();
   };
 
@@ -51,15 +60,19 @@ export default function LoginPage() {
   return (
     <div className="login-wrap">
       <form className="panel login-card" onSubmit={onSubmit}>
-        <h1>Store POS</h1>
-        <p>Sign in to open the till</p>
+        <div className="login-logo">
+          <Icon name="store" size={22} />
+        </div>
+        <h1>Punto de Venta</h1>
+        <p>Inicia sesion para abrir la caja</p>
 
         {(serverError || error) && <div className="error">{serverError || error}</div>}
 
         <div className="field">
-          <label htmlFor="username">Username</label>
+          <label htmlFor="username">Usuario</label>
           <input
             id="username"
+            spellCheck={false}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoFocus
@@ -67,7 +80,7 @@ export default function LoginPage() {
           />
         </div>
         <div className="field">
-          <label htmlFor="password">Password</label>
+          <label htmlFor="password">Contrasena</label>
           <input
             id="password"
             type="password"
@@ -76,53 +89,50 @@ export default function LoginPage() {
             autoComplete="current-password"
           />
         </div>
-        <button className="btn btn-primary" type="submit" disabled={busy} style={{ width: '100%' }}>
-          {busy ? 'Signing in…' : 'Sign in'}
+        <button className="btn btn-primary btn-block" type="submit" disabled={busy}>
+          {busy ? 'Entrando…' : 'Entrar'}
         </button>
 
         {(needsConn || showConn) && (
-          <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--line)', paddingTop: '1rem' }}>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ width: '100%', marginBottom: '0.75rem' }}
-              onClick={() => setShowConn((v) => !v)}
+          <div className="login-conn">
+            <Disclosure
+              label="Conexion de red"
+              icon="settings"
+              open={showConn}
+              onToggle={() => setShowConn((v) => !v)}
             >
-              {showConn ? 'Hide' : 'Network'} connection
-            </button>
-            {showConn && (
-              <>
+              <div className="field">
+                <label htmlFor="conn-mode">Modo</label>
+                <select id="conn-mode" value={mode} onChange={(e) => setMode(e.target.value)}>
+                  {MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {MODE_LABELS[m]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {mode === 'Network Point of Sale Terminal' && (
                 <div className="field">
-                  <label>Mode</label>
-                  <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                    {MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m.replace(' Point of Sale', '')}
-                      </option>
-                    ))}
-                  </select>
+                  <label htmlFor="conn-ip">IP del servidor</label>
+                  <input
+                    id="conn-ip"
+                    value={serverIp}
+                    onChange={(e) => setServerIp(e.target.value)}
+                    placeholder="192.168.1.10"
+                  />
                 </div>
-                {mode === 'Network Point of Sale Terminal' && (
-                  <div className="field">
-                    <label>Server IP</label>
-                    <input
-                      value={serverIp}
-                      onChange={(e) => setServerIp(e.target.value)}
-                      placeholder="192.168.1.10"
-                    />
-                  </div>
-                )}
-                {connMsg && <p className="muted">{connMsg}</p>}
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button type="button" className="btn btn-primary" onClick={saveConnection}>
-                    Save
-                  </button>
-                  <button type="button" className="btn" onClick={() => refreshApiInfo()}>
-                    Retry
-                  </button>
-                </div>
-              </>
-            )}
+              )}
+              {connMsg && <div className="notice">{connMsg}</div>}
+              <div className="login-conn-actions">
+                <button type="button" className="btn btn-soft" onClick={saveConnection}>
+                  Guardar
+                </button>
+                <button type="button" className="btn" onClick={() => refreshApiInfo()}>
+                  <Icon name="refresh" size={16} />
+                  Reintentar
+                </button>
+              </div>
+            </Disclosure>
           </div>
         )}
       </form>

@@ -1,0 +1,41 @@
+/* Caja: ajustes de presentacion sobre los estilos base de src/index.css */
+
+/* El aviso vive dentro del panel del carrito para que la rejilla no se mueva */
+.till-right .error {
+  margin: var(--sp-3) var(--sp-4) 0;
+  align-items: center;
+}
+
+/* Barra de escaneo: campo con icono, boton fantasma solo cuando hay texto */
+.scan-bar .scan-add { height: 44px; }
+
+/* Rejilla de productos: estado vacio a lo ancho */
+.product-grid .empty-state { grid-column: 1 / -1; }
+
+/* Filas del carrito: nombre | cantidad | importe | quitar */
+.till .cart-row { grid-template-columns: 1fr auto minmax(72px, auto) auto; }
+.till .cart-row .remove { margin-left: calc(var(--sp-1) * -1); }
+
+/* Totales */
+.totals .discount-row .field label { font-size: var(--fs-xs); }
+.totals .row.discount { color: var(--ok); }
+
+/* Cobro */
+.pay-card-note {
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  padding: var(--sp-4) 0 var(--sp-2);
+}
+.quick-cash.count-1 { grid-template-columns: 1fr; }
+.quick-cash.count-2 { grid-template-columns: repeat(2, 1fr); }
+.quick-cash.count-4 { grid-template-columns: repeat(2, 1fr); }
+
+/* Ventas en espera */
+.holds-table .row-actions { display: flex; justify-content: flex-end; gap: var(--sp-1); align-items: center; }
+
+/* Selector de cliente */
+.customer-error { margin: var(--sp-2); }
+.customer-empty { padding: var(--sp-3); }
+.customer-quick-add-actions { display: flex; gap: var(--sp-2); }
+.customer-quick-add-actions .btn:first-child { flex: 1; }

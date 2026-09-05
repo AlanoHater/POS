@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 
 type Props = {
   value: string;
@@ -7,15 +7,25 @@ type Props = {
   symbol: string;
 };
 
-const SA_NOTES = [10, 20, 50, 100, 200];
+// Billetes de uso comun; el simbolo de moneda viene de Ajustes.
+const BILLETES = [20, 50, 100, 200, 500, 1000];
+// Exacto + los billetes que superan el total, sin pasar de este numero de botones.
+const MAX_QUICK = 5;
 
 function formatAmount(n: number) {
   return n.toFixed(2);
 }
 
+/** Montos rapidos: "Exacto" y los siguientes billetes redondos por encima del total. */
+export function quickCashOptions(due: number) {
+  const above = BILLETES.filter((note) => note > due + 0.0001);
+  return Array.from(new Set(above)).slice(0, MAX_QUICK - 1);
+}
+
 export default function PaymentPad({ value, onChange, due, symbol }: Props) {
-  // After Exact / note pick, the next digit replaces instead of appending.
+  // Tras elegir Exacto o un billete, el siguiente digito reemplaza en vez de sumarse.
   const replaceNext = useRef(false);
+  const notes = useMemo(() => quickCashOptions(due), [due]);
 
   const setAmount = (amount: number) => {
     onChange(formatAmount(amount));
@@ -58,18 +68,19 @@ export default function PaymentPad({ value, onChange, due, symbol }: Props) {
   };
 
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'];
+  const quickCount = notes.length + 1;
 
   return (
     <>
-      <div className="quick-cash">
+      <div className={`quick-cash count-${quickCount}`}>
         <button type="button" className="btn" onClick={() => setAmount(due)}>
-          Exact
+          Exacto
         </button>
-        {SA_NOTES.map((note) => (
+        {notes.map((note) => (
           <button
             key={note}
             type="button"
-            className="btn"
+            className="btn num"
             onClick={() => setAmount(note)}
           >
             {symbol}
@@ -79,12 +90,17 @@ export default function PaymentPad({ value, onChange, due, symbol }: Props) {
       </div>
       <div className="numpad">
         {keys.map((k) => (
-          <button key={k} type="button" onClick={() => append(k)}>
+          <button
+            key={k}
+            type="button"
+            onClick={() => append(k)}
+            aria-label={k === '⌫' ? 'Borrar' : undefined}
+          >
             {k}
           </button>
         ))}
         <button type="button" className="numpad-clear" onClick={() => append('C')}>
-          Clear
+          Limpiar
         </button>
       </div>
     </>

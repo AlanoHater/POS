@@ -11,7 +11,7 @@ router.get('/all', (_req, res) => {
 
 router.post('/category', requirePerm('perm_categories'), (req, res) => {
   const name = req.body?.name;
-  if (!name) return res.status(400).json({ error: 'Name required' });
+  if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
   getDb().prepare('INSERT INTO categories (name) VALUES (?)').run(name);
   res.sendStatus(200);
 });

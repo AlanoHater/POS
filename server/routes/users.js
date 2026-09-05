@@ -13,11 +13,11 @@ const router = Router();
 router.post('/login', (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password required' });
+    return res.status(400).json({ error: 'Usuario y contrasena son obligatorios' });
   }
   const user = loginUser(username, password);
   if (!user) {
-    return res.status(401).json({ error: 'Incorrect username or password' });
+    return res.status(401).json({ error: 'Usuario o contrasena incorrectos' });
   }
   const token = signToken(user);
   res.json({ user, token });
@@ -55,7 +55,7 @@ router.delete(
   (req, res) => {
     const id = parseInt(req.params.userId, 10);
     if (id === 1) {
-      return res.status(400).json({ error: 'Cannot delete the default admin' });
+      return res.status(400).json({ error: 'No se puede eliminar al administrador principal' });
     }
     getDb().prepare('DELETE FROM users WHERE id = ?').run(id);
     res.sendStatus(200);

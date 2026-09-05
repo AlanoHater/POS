@@ -12,6 +12,7 @@ import settingsRouter from './routes/settings.js';
 import transactionsRouter from './routes/transactions.js';
 import mediaRouter from './routes/media.js';
 import demoRouter from './routes/demo.js';
+import reportsRouter from './routes/reports.js';
 
 export async function createServer({ dbPath, uploadsPath, jwtSecret }) {
   fs.mkdirSync(uploadsPath, { recursive: true });
@@ -46,11 +47,12 @@ export async function createServer({ dbPath, uploadsPath, jwtSecret }) {
   app.use('/api/settings', authenticate, settingsRouter(uploadsPath));
   app.use('/api/media', authenticate, mediaRouter(uploadsPath));
   app.use('/api/demo', authenticate, demoRouter);
+  app.use('/api/reports', authenticate, reportsRouter);
   app.use('/api', authenticate, transactionsRouter);
 
   app.use((err, _req, res, _next) => {
     console.error(err);
-    res.status(500).json({ error: err.message || 'Server error' });
+    res.status(500).json({ error: err.message || 'Error del servidor' });
   });
 
   return app;

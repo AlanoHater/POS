@@ -1,0 +1,18 @@
+/* Personal: lista en tarjeta + panel lateral de alta/edicion */
+
+.team-card { padding: 0 var(--sp-2); }
+.team-card .table th:first-child,
+.team-card .table td:first-child { padding-left: var(--sp-4); }
+.team-card .table tbody tr:last-child td { border-bottom: 0; }
+
+.team-user { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.team-user > div { min-width: 0; }
+.team-user strong { font-weight: 500; display: block; }
+
+.team-perms { color: var(--ink-2); font-size: var(--fs-sm); }
+.team-perms.all { color: var(--accent-ink); font-weight: 500; }
+
+.team-count { font-size: var(--fs-sm); color: var(--ink-3); }
+
+.team-drawer .section-title { margin-top: var(--sp-2); }
+.team-drawer .check:last-child { margin-bottom: 0; }

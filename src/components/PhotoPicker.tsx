@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, getUploadsBase, MediaItem, PexelsPhoto } from '../api/client';
 import Modal from './Modal';
+import { ConfirmDialog, EmptyState, Icon } from './ui';
 
 type Props = {
   value: string;
@@ -11,11 +12,17 @@ type Props = {
 
 type Tab = 'library' | 'pexels' | 'upload';
 
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'library', label: 'Biblioteca' },
+  { id: 'pexels', label: 'Pexels' },
+  { id: 'upload', label: 'Subir' },
+];
+
 export default function PhotoPicker({
   value,
   onChange,
   suggestedQuery = '',
-  label = 'Photo',
+  label = 'Foto',
 }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('library');
@@ -25,6 +32,7 @@ export default function PhotoPicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState(true);
+  const [pendingDelete, setPendingDelete] = useState<number | null>(null);
 
   const uploads = getUploadsBase();
   const previewSrc = value ? `${uploads}/${value}` : '';
@@ -51,9 +59,9 @@ export default function PhotoPicker({
     try {
       const result = await api.searchPexels(query.trim() || suggestedQuery || 'product');
       setPhotos(result.photos);
-      if (!result.photos.length) setError('No photos found');
+      if (!result.photos.length) setError('No se encontraron fotos');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed');
+      setError(err instanceof Error ? err.message : 'No se pudo buscar');
       setPhotos([]);
     } finally {
       setBusy(false);
@@ -74,7 +82,7 @@ export default function PhotoPicker({
       onChange(item.path);
       setTab('library');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Download failed');
+      setError(err instanceof Error ? err.message : 'No se pudo descargar');
     } finally {
       setBusy(false);
     }
@@ -89,160 +97,187 @@ export default function PhotoPicker({
       onChange(item.path);
       setTab('library');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      setError(err instanceof Error ? err.message : 'No se pudo subir la imagen');
     } finally {
       setBusy(false);
     }
   };
 
-  const removeFromLibrary = async (id: number) => {
-    if (!confirm('Remove this image from the library?')) return;
-    await api.deleteMedia(id);
-    await loadLibrary();
+  const removeFromLibrary = async () => {
+    if (pendingDelete === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteMedia(pendingDelete);
+      await loadLibrary();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo quitar la imagen');
+    } finally {
+      setBusy(false);
+      setPendingDelete(null);
+    }
   };
 
   return (
     <div className="field">
-      <label>{label}</label>
+      <span className="label">{label}</span>
       <div className="photo-picker-row">
         <div className={`photo-preview ${value ? '' : 'empty'}`}>
-          {value ? <img src={previewSrc} alt="" /> : <span>No photo</span>}
+          {value ? <img src={previewSrc} alt="" /> : <span>Sin foto</span>}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-            Choose {label.toLowerCase()}
+        <div className="stack">
+          <button type="button" className="btn" onClick={() => setOpen(true)}>
+            <Icon name="image" size={16} />
+            Elegir {label.toLowerCase()}
           </button>
           {value && (
-            <button type="button" className="btn" onClick={() => onChange('')}>
-              Clear
+            <button type="button" className="btn btn-ghost" onClick={() => onChange('')}>
+              Quitar
             </button>
           )}
         </div>
       </div>
 
       <Modal
-        title="Photo library"
+        title="Biblioteca de imagenes"
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          if (pendingDelete !== null) return; // Escape cierra primero la confirmacion
+          setOpen(false);
+        }}
         wide
         footer={
           <button type="button" className="btn" onClick={() => setOpen(false)}>
-            Done
+            Listo
           </button>
         }
       >
-        <div className="chips" style={{ padding: 0, border: 0, marginBottom: '0.85rem' }}>
-          <button
-            type="button"
-            className={`chip ${tab === 'library' ? 'active' : ''}`}
-            onClick={() => setTab('library')}
-          >
-            Library
-          </button>
-          <button
-            type="button"
-            className={`chip ${tab === 'pexels' ? 'active' : ''}`}
-            onClick={() => setTab('pexels')}
-          >
-            Pexels
-          </button>
-          <button
-            type="button"
-            className={`chip ${tab === 'upload' ? 'active' : ''}`}
-            onClick={() => setTab('upload')}
-          >
-            Upload
-          </button>
+        <div className="toolbar">
+          <div className="segmented" role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={tab === t.id ? 'active' : ''}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {error && <div className="error">{error}</div>}
-
-        {tab === 'library' && (
-          <div className="media-grid">
-            {library.map((item) => (
-              <div
-                key={item.id}
-                className={`media-tile ${value === item.path ? 'selected' : ''}`}
-                onClick={() => onChange(item.path)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') onChange(item.path);
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                <img src={`${uploads}/${item.path}`} alt={item.alt || ''} />
-                <span>{item.source === 'pexels' ? 'Pexels' : 'Upload'}</span>
-                <button
-                  type="button"
-                  className="media-del"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeFromLibrary(item.id);
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            {!library.length && (
-              <div className="empty">Library is empty — search Pexels or upload a file</div>
-            )}
+        {error && (
+          <div className="error">
+            <Icon name="alert" size={16} />
+            <span>{error}</span>
           </div>
         )}
+
+        {tab === 'library' &&
+          (library.length ? (
+            <div className="media-grid">
+              {library.map((item) => (
+                <div
+                  key={item.id}
+                  className={`media-tile ${value === item.path ? 'selected' : ''}`}
+                  onClick={() => onChange(item.path)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') onChange(item.path);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <img src={`${uploads}/${item.path}`} alt={item.alt || ''} />
+                  <span>{item.source === 'pexels' ? 'Pexels' : 'Subida'}</span>
+                  <button
+                    type="button"
+                    className="media-del"
+                    aria-label="Quitar de la biblioteca"
+                    title="Quitar de la biblioteca"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPendingDelete(item.id);
+                    }}
+                  >
+                    <Icon name="x" size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              compact
+              icon="image"
+              title="La biblioteca esta vacia"
+              hint="Busca en Pexels o sube un archivo"
+            />
+          ))}
 
         {tab === 'pexels' && (
           <div>
             {!hasKey && (
-              <div className="notice">
-                Add your Pexels API key under Settings → Media before searching.
+              <div className="banner info">
+                <Icon name="info" size={16} />
+                <span>Agrega tu llave de Pexels en Ajustes → Imagenes antes de buscar.</span>
               </div>
             )}
-            <div className="filters">
-              <div className="field" style={{ flex: 1, minWidth: 200 }}>
-                <label>Search Pexels</label>
+            <div className="toolbar">
+              <div className="toolbar-search">
+                <Icon name="search" size={16} />
                 <input
+                  className="input"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') searchPexels();
                   }}
-                  placeholder={suggestedQuery || 'coffee, fruit, sandwich…'}
+                  placeholder={suggestedQuery || 'cafe, fruta, sandwich…'}
+                  aria-label="Buscar en Pexels"
                 />
               </div>
               <button
                 type="button"
-                className="btn btn-primary"
+                className="btn"
                 onClick={searchPexels}
                 disabled={busy || !hasKey}
               >
-                {busy ? 'Searching…' : 'Search'}
+                {busy ? 'Buscando…' : 'Buscar'}
               </button>
             </div>
-            <div className="media-grid">
-              {photos.map((photo) => (
-                <button
-                  key={photo.id}
-                  type="button"
-                  className="media-tile"
-                  disabled={busy}
-                  onClick={() => downloadPhoto(photo)}
-                  title={`Photo by ${photo.photographer}`}
-                >
-                  <img src={photo.preview} alt={photo.alt} />
-                  <span>Save · {photo.photographer}</span>
-                </button>
-              ))}
+            <div className="stack">
+              {photos.length > 0 && (
+                <div className="media-grid">
+                  {photos.map((photo) => (
+                    <button
+                      key={photo.id}
+                      type="button"
+                      className="media-tile"
+                      disabled={busy}
+                      onClick={() => downloadPhoto(photo)}
+                      title={`Foto de ${photo.photographer}`}
+                    >
+                      <img src={photo.preview} alt={photo.alt} />
+                      <span>Guardar · {photo.photographer}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="subtle text-xs">
+                Las fotos se descargan a tu biblioteca local y despues funcionan sin internet en
+                la caja.
+              </p>
             </div>
-            <p className="muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem' }}>
-              Photos are downloaded into your local library, then used offline on the till.
-            </p>
           </div>
         )}
 
         {tab === 'upload' && (
           <div className="field">
-            <label>Upload image to library</label>
+            <label htmlFor="photo-upload">Subir imagen a la biblioteca</label>
             <input
+              id="photo-upload"
               type="file"
               accept="image/*"
               disabled={busy}
@@ -251,9 +286,21 @@ export default function PhotoPicker({
                 if (file) uploadFile(file);
               }}
             />
+            <span className="hint">La imagen se guarda en la biblioteca y se asigna a este producto.</span>
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Quitar imagen"
+        message="La imagen se borrara de la biblioteca. Los productos que la usan se quedaran sin foto."
+        confirmLabel="Quitar"
+        danger
+        busy={busy}
+        onConfirm={removeFromLibrary}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

@@ -146,7 +146,8 @@ export async function initDatabase(filePath) {
       category TEXT NOT NULL DEFAULT '',
       quantity INTEGER NOT NULL DEFAULT 0,
       stock INTEGER NOT NULL DEFAULT 1,
-      img TEXT NOT NULL DEFAULT ''
+      img TEXT NOT NULL DEFAULT '',
+      barcode TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS customers (
@@ -202,7 +203,10 @@ export async function initDatabase(filePath) {
       change REAL NOT NULL DEFAULT 0,
       payment_type INTEGER NOT NULL DEFAULT 1,
       items_json TEXT NOT NULL DEFAULT '[]',
-      date TEXT NOT NULL
+      date TEXT NOT NULL,
+      cancelled_at TEXT NOT NULL DEFAULT '',
+      cancelled_by TEXT NOT NULL DEFAULT '',
+      cancel_reason TEXT NOT NULL DEFAULT ''
     );
 
     CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
@@ -218,12 +222,32 @@ export async function initDatabase(filePath) {
   return db;
 }
 
+function columnNames(table) {
+  return new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+}
+
+function addColumn(table, column, definition) {
+  if (columnNames(table).has(column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
 function migrateSchema() {
-  const cols = db.prepare('PRAGMA table_info(settings)').all();
-  const names = new Set(cols.map((c) => c.name));
-  if (!names.has('pexels_api_key')) {
-    db.exec(`ALTER TABLE settings ADD COLUMN pexels_api_key TEXT NOT NULL DEFAULT ''`);
-  }
+  addColumn('settings', 'pexels_api_key', `TEXT NOT NULL DEFAULT ''`);
+
+  // Codigo de barras del producto (para lector fisico o camara).
+  addColumn('products', 'barcode', `TEXT NOT NULL DEFAULT ''`);
+
+  // Auditoria de cancelacion de ventas.
+  addColumn('transactions', 'cancelled_at', `TEXT NOT NULL DEFAULT ''`);
+  addColumn('transactions', 'cancelled_by', `TEXT NOT NULL DEFAULT ''`);
+  addColumn('transactions', 'cancel_reason', `TEXT NOT NULL DEFAULT ''`);
+
+  // Se crea despues de la migracion: la columna debe existir primero.
+  // El indice parcial permite varios productos sin codigo, pero no codigos repetidos.
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode
+       ON products(barcode) WHERE barcode != ''`
+  );
 }
 
 function seedDefaults() {
@@ -240,7 +264,7 @@ function seedDefaults() {
   if (!settings) {
     db.prepare(
       `INSERT INTO settings (id, app, store, symbol, percentage, charge_tax, till)
-       VALUES (1, 'Standalone Point of Sale', 'My Store', '$', 0, 0, 1)`
+       VALUES (1, 'Standalone Point of Sale', 'Mi Tienda', '$', 0, 0, 1)`
     ).run();
   }
 
@@ -279,6 +303,7 @@ export function mapProduct(row) {
     quantity: row.quantity,
     stock: row.stock,
     img: row.img,
+    barcode: row.barcode || '',
   };
 }
 
@@ -330,6 +355,9 @@ export function mapTransaction(row) {
     payment_type: row.payment_type,
     items,
     date: row.date,
+    cancelled_at: row.cancelled_at || '',
+    cancelled_by: row.cancelled_by || '',
+    cancel_reason: row.cancel_reason || '',
   };
 }
 

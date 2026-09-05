@@ -1,0 +1,14 @@
+/* Ajustes: complementos a .settings / .settings-section de index.css */
+
+.settings-section .field:last-child { margin-bottom: 0; }
+.settings-section .field-row .field { margin-bottom: var(--sp-4); }
+
+/* Campos cortos (simbolo, numero de caja): no ocupan todo el ancho */
+.settings-narrow { max-width: 220px; }
+
+.settings-section .banner.info { margin-bottom: var(--sp-4); }
+.settings-section .banner.info strong { font-family: var(--mono); font-weight: 600; }
+
+.settings-section .hint a { color: var(--accent); }
+
+.settings-demo-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }

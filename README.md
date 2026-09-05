@@ -5,13 +5,13 @@ Modern desktop Point of Sale for a single register or a LAN of networked tills. 
 ## Features
 
 ### Till
-- Barcode scan / search (Enter to add)
+- Barcode scan / search (Enter to add) — hardware scanner or webcam
 - Category filter chips
 - Product tiles with photos, price, and stock status
 - Cart with quantity controls, discount, and tax
 - Customer picker with quick-add
 - Hold / resume sales
-- Cash payment pad with South African note shortcuts (R10–R200) plus Exact
+- Cash payment pad with note shortcuts (20–500) plus Exact
 - Card payment (exact tender)
 - Change / still-due display
 - Printable receipt
@@ -24,7 +24,8 @@ Modern desktop Point of Sale for a single register or a LAN of networked tills. 
 - Multi-select **bulk delete**
 
 ### Sales
-- Transaction history filtered by date range, cashier, till, and status (paid / held)
+- Transaction history filtered by date range, cashier, till, and status (paid / held / cancelled)
+- Dashboard, CSV export, sale cancellation, and printable reports (see **Novedades en español**)
 
 ### Customers & Team
 - Customer records
@@ -137,6 +138,70 @@ From **Catalog** or **Settings → Demo data**:
 - **Bulk delete** (Catalog) — delete selected products
 - **Bulk delete catalog & sales** (Settings) — removes products, categories, sales history, and customers except Walk-in; keeps staff and settings
 
+---
+
+## Novedades en español (v2.1)
+
+La interfaz de la aplicación está **completamente en español**. Estas funciones se agregaron sobre la base 2.0:
+
+### Código de barras
+- Cada producto tiene un campo **Código de barras** (Catálogo → Nuevo/Editar producto).
+- Es opcional, pero **no se puede repetir** entre productos (índice único parcial en la base).
+- En la **Caja** el código se resuelve antes que el ID o el nombre: un lector USB de teclado
+  funciona sin configuración — escribe en el campo de búsqueda y presiona Enter.
+- El botón **Cámara** abre un lector con la webcam (ZXing) para EAN‑13/8, UPC‑A/E,
+  Code 128/39, ITF y QR. En la caja lee en modo continuo; en el catálogo llena el campo y cierra.
+- Electron concede el permiso de cámara y niega los demás (`setPermissionRequestHandler`).
+
+### Panel de control
+Nueva sección **Panel**, con rangos rápidos (hoy, ayer, 7/30 días, este mes, mes pasado),
+filtro por cajero y por caja:
+
+- Indicadores con **comparación contra el periodo anterior** de la misma duración:
+  ingresos, tickets, ticket promedio y piezas vendidas.
+- Descuentos e impuestos, ventas canceladas, ventas en espera y **valor del inventario**.
+- Gráficas de **ventas por día** y **por hora** (con mejor día y hora pico).
+- Rankings de productos, categorías, **desempeño por cajero** y formas de pago con su porcentaje.
+- Listas accionables de **productos agotados** y **stock bajo** (5 piezas o menos).
+- **Exportar CSV** e **Imprimir** el panel.
+
+Las gráficas son CSS puro: no se agregaron librerías de gráficas.
+
+### Historial de ventas
+- Filtros por rango, cajero, caja y **estado** (todas / pagadas / en espera / canceladas),
+  más búsqueda por folio, cliente o cajero.
+- Resumen con total de ventas, ingresos, ticket promedio, piezas y canceladas.
+- **Ver** el detalle de una venta con sus artículos y totales.
+- **Cancelar** una venta: cambia a estado *Cancelada*, **devuelve las piezas al inventario**
+  y guarda quién, cuándo y por qué. La venta permanece en el historial para auditoría.
+- **Quitar**: borra la venta del historial de forma definitiva (no repone inventario).
+- **Exportar ventas** (una fila por venta) y **Exportar detalle** (una fila por producto vendido),
+  en CSV con separador `;` y BOM UTF‑8 para que Excel en español lo abra correcto.
+- **Imprimir reporte** (hoja tamaño carta con totales) y **Ticket** para reimprimir un
+  comprobante de 80 mm, marcado como *REIMPRESIÓN* y con aviso si la venta fue cancelada.
+
+### Base de datos
+Las columnas nuevas se agregan solas al arrancar (`migrateSchema`), sin perder datos:
+
+| Tabla | Columnas nuevas |
+|-------|-----------------|
+| `products` | `barcode` |
+| `transactions` | `cancelled_at`, `cancelled_by`, `cancel_reason` |
+
+Los estados de una venta son `0` en espera, `1` pagada y `2` cancelada.
+En `GET /by-date`, `status=-1` devuelve todos los estados.
+
+### Endpoints nuevos
+
+| Método | Ruta | Para qué |
+|--------|------|----------|
+| `GET` | `/reports/summary?start&end&user&till` | Datos agregados del panel |
+| `POST` | `/cancel` | Cancela una venta y repone inventario |
+
+Ambos requieren el permiso `perm_transactions`.
+
+---
+
 ## API overview
 
 Local API base (standalone): `http://127.0.0.1:8001/api`
@@ -145,7 +210,8 @@ Local API base (standalone): `http://127.0.0.1:8001/api`
 |------|----------|
 | Auth | `POST /users/login` |
 | Catalog | `/inventory/products`, `/categories/all` |
-| Sales | `POST /new`, `GET /by-date`, `GET /on-hold` |
+| Sales | `POST /new`, `GET /by-date`, `GET /on-hold`, `POST /cancel` |
+| Reports | `GET /reports/summary` |
 | Media | `/media/library`, `/media/pexels/search` |
 | Demo | `POST /demo/seed`, `POST /demo/clear` |
 

@@ -27,10 +27,15 @@ export default function inventoryRouter(uploadsPath) {
   });
 
   router.post('/product/sku', (req, res) => {
-    const sku = req.body?.skuCode;
-    const row = getDb()
-      .prepare('SELECT * FROM products WHERE id = ? OR name = ?')
-      .get(parseInt(sku, 10) || -1, String(sku || ''));
+    const code = String(req.body?.skuCode ?? '').trim();
+    if (!code) return res.json(null);
+
+    // El codigo de barras tiene prioridad sobre el id y el nombre.
+    const row =
+      getDb().prepare("SELECT * FROM products WHERE barcode != '' AND barcode = ?").get(code) ||
+      getDb()
+        .prepare('SELECT * FROM products WHERE id = ? OR name = ?')
+        .get(parseInt(code, 10) || -1, code);
     res.json(mapProduct(row));
   });
 
@@ -58,12 +63,26 @@ export default function inventoryRouter(uploadsPath) {
 
       const stock = body.stock === 'on' || body.stock === 0 || body.stock === '0' ? 0 : 1;
       const quantity = body.quantity === '' || body.quantity == null ? 0 : parseInt(body.quantity, 10);
+      const barcode = String(body.barcode ?? '').trim();
+      const editingId = body.id ? parseInt(body.id, 10) : 0;
+
+      // Un codigo de barras no puede repetirse entre productos (vacio si no se usa).
+      if (barcode) {
+        const clash = getDb()
+          .prepare('SELECT id, name FROM products WHERE barcode = ? AND id != ?')
+          .get(barcode, editingId);
+        if (clash) {
+          return res.status(400).json({
+            error: `El codigo de barras ${barcode} ya esta asignado a "${clash.name}".`,
+          });
+        }
+      }
 
       if (!body.id) {
         const result = getDb()
           .prepare(
-            `INSERT INTO products (name, price, category, quantity, stock, img)
-             VALUES (?, ?, ?, ?, ?, ?)`
+            `INSERT INTO products (name, price, category, quantity, stock, img, barcode)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             body.name,
@@ -71,16 +90,17 @@ export default function inventoryRouter(uploadsPath) {
             body.category || '',
             quantity,
             stock,
-            image
+            image,
+            barcode
           );
         const row = getDb().prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid);
         return res.json(mapProduct(row));
       }
 
-      const id = parseInt(body.id, 10);
+      const id = editingId;
       getDb()
         .prepare(
-          `UPDATE products SET name = ?, price = ?, category = ?, quantity = ?, stock = ?, img = ?
+          `UPDATE products SET name = ?, price = ?, category = ?, quantity = ?, stock = ?, img = ?, barcode = ?
            WHERE id = ?`
         )
         .run(
@@ -90,6 +110,7 @@ export default function inventoryRouter(uploadsPath) {
           quantity,
           stock,
           image,
+          barcode,
           id
         );
       res.sendStatus(200);
@@ -116,7 +137,7 @@ export default function inventoryRouter(uploadsPath) {
       .map((id) => parseInt(id, 10))
       .filter((id) => Number.isFinite(id) && id > 0);
     if (!ids.length) {
-      return res.status(400).json({ error: 'No product ids provided' });
+      return res.status(400).json({ error: 'No se recibieron productos para eliminar' });
     }
 
     const db = getDb();

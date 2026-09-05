@@ -1,0 +1,17 @@
+/* Login: complementos a .login-wrap / .login-card de index.css */
+
+.login-card .error { margin-bottom: var(--sp-4); }
+.login-card .btn-block { margin-top: var(--sp-2); }
+
+/* Conexion de red: bloque secundario bajo el boton de entrar */
+.login-conn { margin-top: var(--sp-5); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.login-conn .disclosure { margin-bottom: 0; }
+.login-conn .disclosure-bar .btn { width: 100%; justify-content: space-between; }
+.login-conn .disclosure-body .field { margin-bottom: var(--sp-3); }
+.login-conn .disclosure-body .notice { margin-top: var(--sp-1); }
+.login-conn-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
+.login-conn-actions .btn { flex: 1; }
+
+/* Pantalla de carga */
+.login-card.loading { display: flex; flex-direction: column; align-items: flex-start; }
+.login-card.loading p { margin-bottom: 0; }

@@ -23,6 +23,7 @@ export type Product = {
   quantity: number;
   stock: number;
   img: string;
+  barcode: string;
 };
 
 export type Category = {
@@ -104,6 +105,59 @@ export type Transaction = {
   payment_type: number;
   items: CartItem[];
   date: string;
+  cancelled_at?: string;
+  cancelled_by?: string;
+  cancel_reason?: string;
+};
+
+/** Estados de una venta tal como se guardan en la base de datos. */
+export const SALE_STATUS = {
+  held: 0,
+  paid: 1,
+  cancelled: 2,
+  all: -1,
+} as const;
+
+export type ReportSummary = {
+  range: { start: string; end: string; previousStart: string; previousEnd: string };
+  kpis: {
+    revenue: number;
+    tickets: number;
+    units: number;
+    avgTicket: number;
+    discounts: number;
+    tax: number;
+    cancelledCount: number;
+    cancelledAmount: number;
+    heldCount: number;
+    heldAmount: number;
+    productsSold: number;
+  };
+  previous: {
+    revenue: number;
+    tickets: number;
+    units: number;
+    avgTicket: number;
+    discounts: number;
+    tax: number;
+  };
+  byDay: { date: string; revenue: number; tickets: number; units: number }[];
+  byHour: { hour: number; revenue: number; tickets: number }[];
+  bestDay: { date: string; revenue: number; tickets: number; units: number } | null;
+  peakHour: { hour: number; revenue: number; tickets: number } | null;
+  topProducts: { id: number; name: string; units: number; revenue: number }[];
+  slowProducts: { id: number; name: string; units: number; revenue: number }[];
+  byCategory: { category: string; units: number; revenue: number }[];
+  byUser: { userId: number; name: string; tickets: number; revenue: number }[];
+  byPayment: { type: number; label: string; tickets: number; revenue: number }[];
+  byTill: { till: number; tickets: number; revenue: number }[];
+  inventory: {
+    totalProducts: number;
+    trackedProducts: number;
+    outOfStock: { id: number; name: string; quantity: number; category: string }[];
+    lowStock: { id: number; name: string; quantity: number; category: string }[];
+    stockValue: number;
+  };
 };
 
 let baseUrl = 'http://127.0.0.1:8001/api';
@@ -167,7 +221,7 @@ async function request<T>(
     } catch {
       /* ignore */
     }
-    throw new Error(message || `Request failed (${res.status})`);
+    throw new Error(message || `La peticion fallo (${res.status})`);
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -181,7 +235,7 @@ async function request<T>(
 
 export async function healthCheck(healthUrl: string) {
   const res = await fetch(healthUrl, { method: 'GET' });
-  if (!res.ok) throw new Error('Server unreachable');
+  if (!res.ok) throw new Error('No se puede contactar al servidor');
   return res.json();
 }
 
@@ -286,6 +340,22 @@ export const api = {
 
   deleteTransaction: (orderId: number) =>
     request('/delete', { method: 'POST', body: JSON.stringify({ orderId }) }),
+
+  cancelTransaction: (orderId: number, reason: string, user: string) =>
+    request<{ ok: boolean; transaction: Transaction }>('/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ orderId, reason, user }),
+    }),
+
+  getReport: (params: { start: string; end: string; user: number; till: number }) => {
+    const q = new URLSearchParams({
+      start: params.start,
+      end: params.end,
+      user: String(params.user),
+      till: String(params.till),
+    });
+    return request<ReportSummary>(`/reports/summary?${q}`);
+  },
 
   getMediaLibrary: () => request<MediaItem[]>('/media/library'),
 

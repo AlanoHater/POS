@@ -55,7 +55,7 @@ export default function mediaRouter(uploadsPath) {
 
   router.post('/upload', requireAnyPerm('perm_products', 'perm_settings'), upload.single('image'), (req, res) => {
     if (!req.file) {
-      return res.status(400).json({ error: 'No image uploaded' });
+      return res.status(400).json({ error: 'No se recibio ninguna imagen' });
     }
     const result = getDb()
       .prepare(
@@ -72,7 +72,7 @@ export default function mediaRouter(uploadsPath) {
   router.delete('/library/:id', requireAnyPerm('perm_products', 'perm_settings'), (req, res) => {
     const id = parseInt(req.params.id, 10);
     const row = getDb().prepare('SELECT * FROM media_library WHERE id = ?').get(id);
-    if (!row) return res.status(404).json({ error: 'Not found' });
+    if (!row) return res.status(404).json({ error: 'No encontrado' });
     getDb().prepare('DELETE FROM media_library WHERE id = ?').run(id);
     const filePath = path.join(libraryDir, row.filename);
     try {
@@ -87,11 +87,11 @@ export default function mediaRouter(uploadsPath) {
     const key = getPexelsKey();
     if (!key) {
       return res.status(400).json({
-        error: 'Add a Pexels API key in Settings first.',
+        error: 'Primero agrega una llave de Pexels en Ajustes.',
       });
     }
     const q = String(req.query.q || '').trim();
-    if (!q) return res.status(400).json({ error: 'Search query required' });
+    if (!q) return res.status(400).json({ error: 'Escribe algo que buscar' });
     const page = parseInt(String(req.query.page || '1'), 10) || 1;
     const perPage = Math.min(parseInt(String(req.query.per_page || '20'), 10) || 20, 40);
 
@@ -108,7 +108,7 @@ export default function mediaRouter(uploadsPath) {
       if (!response.ok) {
         const text = await response.text();
         return res.status(response.status).json({
-          error: text || 'Pexels search failed',
+          error: text || 'La busqueda en Pexels fallo',
         });
       }
       const data = await response.json();
@@ -128,21 +128,21 @@ export default function mediaRouter(uploadsPath) {
       });
     } catch (err) {
       console.error(err);
-      res.status(500).json({ error: err.message || 'Pexels request failed' });
+      res.status(500).json({ error: err.message || 'La peticion a Pexels fallo' });
     }
   });
 
   router.post('/pexels/download', requireAnyPerm('perm_products', 'perm_settings'), async (req, res) => {
     const key = getPexelsKey();
     if (!key) {
-      return res.status(400).json({ error: 'Add a Pexels API key in Settings first.' });
+      return res.status(400).json({ error: 'Primero agrega una llave de Pexels en Ajustes.' });
     }
 
     const body = req.body || {};
     const photoId = parseInt(body.photoId, 10);
     const imageUrl = body.imageUrl;
     if (!photoId || !imageUrl) {
-      return res.status(400).json({ error: 'photoId and imageUrl are required' });
+      return res.status(400).json({ error: 'photoId e imageUrl son obligatorios' });
     }
 
     const existing = getDb()
@@ -157,7 +157,7 @@ export default function mediaRouter(uploadsPath) {
         headers: { Authorization: key },
       });
       if (!response.ok) {
-        return res.status(502).json({ error: 'Failed to download image from Pexels' });
+        return res.status(502).json({ error: 'No se pudo descargar la imagen de Pexels' });
       }
       const buffer = Buffer.from(await response.arrayBuffer());
       const filename = `pexels-${photoId}-${Date.now()}.jpg`;
@@ -181,7 +181,7 @@ export default function mediaRouter(uploadsPath) {
       res.json(mapMedia(row));
     } catch (err) {
       console.error(err);
-      res.status(500).json({ error: err.message || 'Download failed' });
+      res.status(500).json({ error: err.message || 'La descarga fallo' });
     }
   });
 

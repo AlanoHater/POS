@@ -1,6 +1,8 @@
 import { useAuth } from './context/AuthContext';
+import { Icon } from './components/ui';
 import LoginPage from './pages/LoginPage';
 import PosPage from './pages/PosPage';
+import './pages/LoginPage.css';
 
 export default function App() {
   const { ready, user } = useAuth();
@@ -8,9 +10,12 @@ export default function App() {
   if (!ready) {
     return (
       <div className="login-wrap">
-        <div className="panel login-card">
-          <h1>Store POS</h1>
-          <p>Starting…</p>
+        <div className="panel login-card loading">
+          <div className="login-logo">
+            <Icon name="store" size={22} />
+          </div>
+          <h1>Punto de Venta</h1>
+          <p>Iniciando…</p>
         </div>
       </div>
     );

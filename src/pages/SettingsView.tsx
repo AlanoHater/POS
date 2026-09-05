@@ -3,6 +3,8 @@ import { api, Settings } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { getPosBridge } from '../bridge';
 import PhotoPicker from '../components/PhotoPicker';
+import { ConfirmDialog } from '../components/ui';
+import './SettingsView.css';
 
 type Props = {
   settings: Settings | null;
@@ -14,6 +16,16 @@ const MODES = [
   'Network Point of Sale Server',
   'Network Point of Sale Terminal',
 ] as const;
+
+/** Etiquetas visibles; el valor guardado en la BD no cambia. */
+const MODE_LABELS: Record<string, string> = {
+  'Standalone Point of Sale': 'Independiente',
+  'Network Point of Sale Server': 'Servidor de red',
+  'Network Point of Sale Terminal': 'Terminal de red',
+};
+
+const CLEAR_WARNING =
+  'Esto borra TODOS los productos, categorias, historial de ventas y clientes. No se puede deshacer.';
 
 export default function SettingsView({ settings, onSaved }: Props) {
   const { apiInfo, refreshApiInfo } = useAuth();
@@ -37,6 +49,7 @@ export default function SettingsView({ settings, onSaved }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -88,11 +101,11 @@ export default function SettingsView({ settings, onSaved }: Props) {
         }
       }
 
-      setMessage('Saved. Restart the app if you changed Standalone / Server / Terminal mode.');
+      setMessage('Guardado. Reinicia la aplicacion si cambiaste el modo Independiente / Servidor / Terminal.');
       await refreshApiInfo();
       await onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(err instanceof Error ? err.message : 'No se pudo guardar');
     }
   };
 
@@ -108,207 +121,250 @@ export default function SettingsView({ settings, onSaved }: Props) {
       setMessage(result.message);
       await onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Seed failed');
+      setError(err instanceof Error ? err.message : 'No se pudo cargar la demostracion');
     } finally {
       setDemoBusy(false);
     }
   };
 
   const clearDemo = async () => {
-    if (
-      !confirm(
-        'Delete ALL products, categories, sales history, and customers (except Walk-in)? This cannot be undone.'
-      )
-    ) {
-      return;
-    }
     setError(null);
     setMessage(null);
     setDemoBusy(true);
     try {
       const result = await api.clearDemo();
       setMessage(result.message);
+      setConfirmClear(false);
       await onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Clear failed');
+      setConfirmClear(false);
+      setError(err instanceof Error ? err.message : 'No se pudo borrar');
     } finally {
       setDemoBusy(false);
     }
   };
 
   return (
-    <div className="panel" style={{ padding: '1.25rem', maxWidth: 880 }}>
+    <div className="settings">
       {error && <div className="error">{error}</div>}
       {message && <div className="notice">{message}</div>}
 
-      <div className="page-grid">
-        <div>
-          <h3 style={{ marginTop: 0 }}>Store</h3>
+      <section className="card settings-section">
+        <header>
+          <h2>Tienda</h2>
+          <p>Nombre, direccion y datos que aparecen en el ticket.</p>
+        </header>
+        <div className="field">
+          <label htmlFor="st-store">Nombre de la tienda</label>
+          <input
+            id="st-store"
+            value={form.store}
+            onChange={(e) => setForm({ ...form, store: e.target.value })}
+          />
+        </div>
+        <div className="field-row">
           <div className="field">
-            <label>Store name</label>
+            <label htmlFor="st-addr1">Direccion</label>
             <input
-              value={form.store}
-              onChange={(e) => setForm({ ...form, store: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Address</label>
-            <input
+              id="st-addr1"
               value={form.address_one}
               onChange={(e) => setForm({ ...form, address_one: e.target.value })}
             />
           </div>
           <div className="field">
-            <label>Address line 2</label>
+            <label htmlFor="st-addr2">Direccion (linea 2)</label>
             <input
+              id="st-addr2"
               value={form.address_two}
               onChange={(e) => setForm({ ...form, address_two: e.target.value })}
             />
           </div>
-          <div className="field">
-            <label>Contact</label>
-            <input
-              value={form.contact}
-              onChange={(e) => setForm({ ...form, contact: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Receipt footer</label>
-            <input
-              value={form.footer}
-              onChange={(e) => setForm({ ...form, footer: e.target.value })}
-            />
-          </div>
-          <PhotoPicker
-            label="Store logo"
-            value={form.img}
-            onChange={(img) => setForm({ ...form, img })}
-            suggestedQuery={form.store || 'store logo'}
+        </div>
+        <div className="field">
+          <label htmlFor="st-contact">Contacto</label>
+          <input
+            id="st-contact"
+            value={form.contact}
+            onChange={(e) => setForm({ ...form, contact: e.target.value })}
           />
         </div>
+        <div className="field">
+          <label htmlFor="st-footer">Pie del ticket</label>
+          <input
+            id="st-footer"
+            value={form.footer}
+            onChange={(e) => setForm({ ...form, footer: e.target.value })}
+          />
+        </div>
+        <PhotoPicker
+          label="Logo de la tienda"
+          value={form.img}
+          onChange={(img) => setForm({ ...form, img })}
+          suggestedQuery={form.store || 'logo de tienda'}
+        />
+      </section>
 
-        <div>
-          <h3 style={{ marginTop: 0 }}>Register</h3>
-          <div className="field">
-            <label>Mode</label>
-            <select value={form.app} onChange={(e) => setForm({ ...form, app: e.target.value })}>
-              {MODES.map((m) => (
-                <option key={m} value={m}>
-                  {m.replace(' Point of Sale', '')}
-                </option>
-              ))}
-            </select>
-          </div>
-          {isTerminal && (
+      <section className="card settings-section">
+        <header>
+          <h2>Impuestos y moneda</h2>
+          <p>Como se calculan y se muestran los importes.</p>
+        </header>
+        <div className="field settings-narrow">
+          <label htmlFor="st-symbol">Simbolo de moneda</label>
+          <input
+            id="st-symbol"
+            value={form.symbol}
+            onChange={(e) => setForm({ ...form, symbol: e.target.value })}
+          />
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={form.charge_tax}
+            onChange={(e) => setForm({ ...form, charge_tax: e.target.checked })}
+          />
+          Cobrar impuesto en las ventas
+        </label>
+        {form.charge_tax && (
+          <div className="field-row">
             <div className="field">
-              <label>Server IP</label>
+              <label htmlFor="st-tax">Nombre del impuesto</label>
               <input
-                value={form.ip}
-                onChange={(e) => setForm({ ...form, ip: e.target.value })}
-                placeholder="192.168.1.10"
+                id="st-tax"
+                value={form.tax}
+                onChange={(e) => setForm({ ...form, tax: e.target.value })}
+                placeholder="IVA"
               />
             </div>
-          )}
-          {isServer && (
-            <p className="muted">
-              Terminals should connect to <strong>{lanIp}</strong> on port 8001.
-            </p>
-          )}
-          <div className="field">
-            <label>Till number</label>
-            <input
-              type="number"
-              min={1}
-              value={form.till}
-              onChange={(e) => setForm({ ...form, till: e.target.value })}
-            />
+            <div className="field">
+              <label htmlFor="st-pct">Impuesto %</label>
+              <input
+                id="st-pct"
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.percentage}
+                onChange={(e) => setForm({ ...form, percentage: e.target.value })}
+              />
+            </div>
           </div>
-          <div className="field">
-            <label>Currency symbol</label>
-            <input
-              value={form.symbol}
-              onChange={(e) => setForm({ ...form, symbol: e.target.value })}
-            />
-          </div>
-          <label
-            style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}
-          >
-            <input
-              type="checkbox"
-              checked={form.charge_tax}
-              onChange={(e) => setForm({ ...form, charge_tax: e.target.checked })}
-            />
-            Charge tax on sales
-          </label>
-          {form.charge_tax && (
-            <>
-              <div className="field">
-                <label>Tax label</label>
-                <input
-                  value={form.tax}
-                  onChange={(e) => setForm({ ...form, tax: e.target.value })}
-                  placeholder="VAT"
-                />
-              </div>
-              <div className="field">
-                <label>Tax %</label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={form.percentage}
-                  onChange={(e) => setForm({ ...form, percentage: e.target.value })}
-                />
-              </div>
-            </>
-          )}
-          {apiInfo && (
-            <p className="muted" style={{ fontSize: '0.85rem' }}>
-              API {apiInfo.baseUrl}
-            </p>
-          )}
+        )}
+      </section>
 
-          <h3>Media</h3>
+      <section className="card settings-section">
+        <header>
+          <h2>Caja y red</h2>
+          <p>Modo de trabajo de esta caja y conexion con otras terminales.</p>
+        </header>
+        <div className="field">
+          <label htmlFor="st-mode">Modo</label>
+          <select
+            id="st-mode"
+            value={form.app}
+            onChange={(e) => setForm({ ...form, app: e.target.value })}
+          >
+            {MODES.map((m) => (
+              <option key={m} value={m}>
+                {MODE_LABELS[m]}
+              </option>
+            ))}
+          </select>
+        </div>
+        {isTerminal && (
           <div className="field">
-            <label>Pexels API key</label>
+            <label htmlFor="st-ip">IP del servidor</label>
             <input
-              type="password"
-              value={form.pexels_api_key}
-              onChange={(e) => setForm({ ...form, pexels_api_key: e.target.value })}
-              placeholder="Paste key from pexels.com/api"
-              autoComplete="off"
+              id="st-ip"
+              value={form.ip}
+              onChange={(e) => setForm({ ...form, ip: e.target.value })}
+              placeholder="192.168.1.10"
             />
           </div>
-          <p className="muted" style={{ fontSize: '0.85rem' }}>
-            Used to search and download product photos into a local library on this server.
-            Get a free key at{' '}
+        )}
+        {isServer && (
+          <div className="banner info">
+            <span>
+              Las terminales deben conectarse a <strong>{lanIp}</strong> en el puerto 8001.
+            </span>
+          </div>
+        )}
+        <div className="field settings-narrow">
+          <label htmlFor="st-till">Numero de caja</label>
+          <input
+            id="st-till"
+            type="number"
+            min={1}
+            value={form.till}
+            onChange={(e) => setForm({ ...form, till: e.target.value })}
+          />
+          {apiInfo && <span className="hint">API {apiInfo.baseUrl}</span>}
+        </div>
+      </section>
+
+      <section className="card settings-section">
+        <header>
+          <h2>Imagenes</h2>
+          <p>Fotos de productos desde una biblioteca local del servidor.</p>
+        </header>
+        <div className="field">
+          <label htmlFor="st-pexels">Llave de Pexels</label>
+          <input
+            id="st-pexels"
+            type="password"
+            value={form.pexels_api_key}
+            onChange={(e) => setForm({ ...form, pexels_api_key: e.target.value })}
+            placeholder="Pega la llave de pexels.com/api"
+            autoComplete="off"
+          />
+          <span className="hint">
+            Sirve para buscar y descargar fotos de productos. Consigue una llave gratis en{' '}
             <a href="https://www.pexels.com/api/" target="_blank" rel="noreferrer">
               pexels.com/api
             </a>
             .
+          </span>
+        </div>
+      </section>
+
+      <div className="settings-actions">
+        <button type="button" className="btn btn-primary" onClick={save}>
+          Guardar ajustes
+        </button>
+      </div>
+
+      <section className="card settings-section danger-zone">
+        <header>
+          <h2>Datos de demostracion</h2>
+          <p>
+            Carga un catalogo de ejemplo (categorias, productos y clientes) o borra el catalogo y
+            las ventas para empezar de cero. El personal y los ajustes se conservan.
           </p>
-        </div>
-      </div>
-
-      <button type="button" className="btn btn-primary" onClick={save} style={{ marginTop: '1rem' }}>
-        Save settings
-      </button>
-
-      <div style={{ marginTop: '1.75rem', paddingTop: '1.25rem', borderTop: '1px solid var(--line)' }}>
-        <h3 style={{ marginTop: 0 }}>Demo data</h3>
-        <p className="muted" style={{ fontSize: '0.9rem', marginTop: 0 }}>
-          Seed a sample South African catalog (categories, products, customers), or wipe catalog and
-          sales data for a clean slate. Staff and settings are kept.
-        </p>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        </header>
+        <div className="settings-demo-actions">
           <button type="button" className="btn" disabled={demoBusy} onClick={seedDemo}>
-            Seed demo catalog
+            Cargar catalogo de ejemplo
           </button>
-          <button type="button" className="btn btn-danger" disabled={demoBusy} onClick={clearDemo}>
-            Bulk delete catalog &amp; sales
+          <button
+            type="button"
+            className="btn btn-danger-ghost"
+            disabled={demoBusy}
+            onClick={() => setConfirmClear(true)}
+          >
+            Borrar catalogo y ventas
           </button>
         </div>
-      </div>
+      </section>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title="Borrar catalogo y ventas?"
+        message={CLEAR_WARNING}
+        confirmLabel="Borrar todo"
+        danger
+        busy={demoBusy}
+        onConfirm={clearDemo}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   );
 }

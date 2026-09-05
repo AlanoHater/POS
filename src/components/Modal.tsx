@@ -1,4 +1,6 @@
 import { ReactNode } from 'react';
+import Icon from './ui/Icon';
+import { useLayer } from './ui/layers';
 
 type Props = {
   title: string;
@@ -11,19 +13,23 @@ type Props = {
 };
 
 export default function Modal({ title, open, onClose, children, footer, wide, compact }: Props) {
+  // Escape solo cierra este modal cuando es la capa superior.
+  useLayer(open, onClose);
+
   if (!open) return null;
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onMouseDown={onClose}>
       <div
         className={`modal ${wide ? 'wide' : ''} ${compact ? 'pay' : ''}`}
-        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-label={title}
       >
         <div className="modal-header">
-          <strong>{title}</strong>
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Close
+          <h2>{title}</h2>
+          <button type="button" className="btn btn-icon btn-ghost" onClick={onClose} aria-label="Cerrar">
+            <Icon name="x" />
           </button>
         </div>
         <div className="modal-body">{children}</div>

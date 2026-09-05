@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import './TillView.css';
 import {
   api,
   CartItem,
@@ -13,6 +14,9 @@ import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import PaymentPad from '../components/PaymentPad';
 import CustomerSelect from '../components/CustomerSelect';
+import BarcodeScanner from '../components/BarcodeScanner';
+import { ConfirmDialog, EmptyState, Icon, Menu, useToast } from '../components/ui';
+import { money } from '../lib/format';
 
 type Props = {
   products: Product[];
@@ -34,20 +38,32 @@ export default function TillView({
   onHoldCount,
 }: Props) {
   const { user, apiInfo } = useAuth();
+  const { toast } = useToast();
   const scanRef = useRef<HTMLInputElement>(null);
+  // Evita cobrar dos veces con Enter repetido o un doble clic mientras responde la API.
+  const [paying, setPaying] = useState(false);
+  // Rafaga de un lector de codigos: digitos con milisegundos de separacion y un Enter final.
+  const lastDigitAt = useRef(0);
+  const burst = useRef(0);
+  // Cambia cada vez que el carrito se reemplaza: los "Deshacer" antiguos dejan de aplicar.
+  const cartEpoch = useRef(0);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [customerId, setCustomerId] = useState('0');
   const [discount, setDiscount] = useState(0);
+  const [showDiscount, setShowDiscount] = useState(false);
   const [activeHoldId, setActiveHoldId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showHolds, setShowHolds] = useState(false);
   const [holds, setHolds] = useState<Transaction[]>([]);
+  const [holdToDelete, setHoldToDelete] = useState<number | null>(null);
+  const [deletingHold, setDeletingHold] = useState(false);
   const [showPay, setShowPay] = useState(false);
   const [paid, setPaid] = useState('');
   const [paymentType, setPaymentType] = useState(1);
   const [receipt, setReceipt] = useState('');
+  const [showCamera, setShowCamera] = useState(false);
 
   const symbol = settings?.symbol || '$';
   const taxRate = settings?.charge_tax ? Number(settings.percentage) || 0 : 0;
@@ -64,53 +80,44 @@ export default function TillView({
     scanRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'F2') {
-        e.preventDefault();
-        if (cart.length) openPay();
-      }
-      if (e.key === 'F4') {
-        e.preventDefault();
-        openHolds();
-      }
-      if (e.key === 'Escape' && showPay) {
-        setShowPay(false);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [cart, showPay]);
-
   const filteredProducts = useMemo(() => {
     const q = query.trim().toLowerCase();
-    // While typing a barcode, keep the grid browsable by category only if empty query feels better
     return products.filter((p) => {
       const catOk = categoryFilter === 'all' || p.category === categoryFilter;
       if (!q) return catOk;
       return (
         catOk &&
-        (p.name.toLowerCase().includes(q) || String(p.id).includes(q))
+        (p.name.toLowerCase().includes(q) ||
+          String(p.id).includes(q) ||
+          (p.barcode || '').toLowerCase().includes(q))
       );
     });
   }, [products, query, categoryFilter]);
 
   const subtotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const afterDiscount = Math.max(0, subtotal - (Number(discount) || 0));
-  const tax = afterDiscount * (taxRate / 100);
-  const total = afterDiscount + tax;
+  const discountAmount = Number(discount) || 0;
+  const afterDiscount = Math.max(0, subtotal - discountAmount);
+  // Importes en centavos: evita que 11.6348 quede "por debajo" de 11.63 al cobrar con tarjeta.
+  const tax = Math.round(afterDiscount * (taxRate / 100) * 100) / 100;
+  const total = Math.round((afterDiscount + tax) * 100) / 100;
   const itemCount = cart.reduce((sum, i) => sum + i.quantity, 0);
 
-  const stockLabel = (p: Product) => {
-    if (!p.stock) return { text: 'No stock limit', className: 'stock-badge' };
-    if (p.quantity <= 0) return { text: 'Out of stock', className: 'stock-badge out' };
-    if (p.quantity <= 5) return { text: `${p.quantity} left`, className: 'stock-badge low' };
-    return { text: `${p.quantity} in stock`, className: 'stock-badge' };
+  const tendered = parseFloat(paid) || 0;
+  const enough = Math.round(tendered * 100) >= Math.round(total * 100);
+  const canConfirm = showPay && cart.length > 0 && enough && !paying;
+
+  /** Solo se avisa cuando importa: pocas piezas o agotado. */
+  const stockOverlay = (p: Product) => {
+    if (!p.stock) return null;
+    if (p.quantity <= 0) return { text: 'Agotado', className: 'stock-badge overlay out' };
+    if (p.quantity <= 5)
+      return { text: `Quedan ${p.quantity}`, className: 'stock-badge overlay low' };
+    return null;
   };
 
   const addToCart = (product: Product) => {
     if (product.stock && product.quantity <= 0) {
-      setError(`${product.name} is out of stock`);
+      setError(`${product.name} esta agotado`);
       return;
     }
     setError(null);
@@ -118,7 +125,7 @@ export default function TillView({
       const existing = prev.find((i) => i.id === product.id);
       if (existing) {
         if (product.stock && existing.quantity >= product.quantity) {
-          setError(`Only ${product.quantity} available for ${product.name}`);
+          setError(`Solo hay ${product.quantity} piezas de ${product.name}`);
           return prev;
         }
         return prev.map((i) =>
@@ -147,16 +154,19 @@ export default function TillView({
   };
 
   const clearCart = () => {
+    cartEpoch.current += 1;
     setCart([]);
     setDiscount(0);
+    setShowDiscount(false);
     setActiveHoldId(null);
     setCustomerId('0');
     setError(null);
     scanRef.current?.focus();
   };
 
-  const onScan = async () => {
-    const code = query.trim();
+  /** Busca un codigo (de barras, id o nombre exacto) y lo agrega al carrito. */
+  const addByCode = async (raw: string) => {
+    const code = raw.trim();
     if (!code) return;
     try {
       const product = await api.findBySku(code);
@@ -166,8 +176,9 @@ export default function TillView({
         scanRef.current?.focus();
         return;
       }
-      // fallback local match by id or exact name
+      // Respaldo local: codigo de barras, id o nombre exacto ya cargados en memoria.
       const local =
+        products.find((p) => p.barcode && p.barcode === code) ||
         products.find((p) => String(p.id) === code) ||
         products.find((p) => p.name.toLowerCase() === code.toLowerCase());
       if (local) {
@@ -175,19 +186,21 @@ export default function TillView({
         setQuery('');
         scanRef.current?.focus();
       } else {
-        setError(`No product for “${code}”`);
+        setError(`No hay ningun producto con el codigo "${code}"`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Scan failed');
+      setError(err instanceof Error ? err.message : 'No se pudo leer el codigo');
     }
   };
+
+  const onScan = () => addByCode(query);
 
   const buildTransaction = (status: number, paidAmount: number, changeAmt: number) => {
     const customer = customers.find((c) => String(c.id) === customerId);
     return {
       ref_number: status === 0 ? `H-${Date.now().toString().slice(-6)}` : '',
       customer: customerId,
-      customer_name: customer?.name || 'Walk-in',
+      customer_name: customer?.name || 'Publico en general',
       status,
       user_id: user?._id || 0,
       user: user?.fullname || '',
@@ -204,27 +217,49 @@ export default function TillView({
     };
   };
 
+  /** Actualiza la venta en espera si sigue existiendo; si ya la borraron, la guarda como nueva. */
+  const persistSale = async (body: Record<string, unknown>) => {
+    if (activeHoldId !== null) {
+      try {
+        await api.updateTransaction({ ...body, _id: activeHoldId });
+        return;
+      } catch (err) {
+        if (!(err instanceof Error && /ya no existe/i.test(err.message))) throw err;
+        setActiveHoldId(null);
+      }
+    }
+    await api.createTransaction(body);
+  };
+
   const holdSale = async () => {
     if (!cart.length) return;
     try {
       const body = buildTransaction(0, 0, 0);
-      if (activeHoldId) {
-        await api.updateTransaction({ ...body, _id: activeHoldId });
-      } else {
-        await api.createTransaction(body);
-      }
+      await persistSale(body);
       clearCart();
       await refreshHolds();
+      toast('Venta guardada en espera', { tone: 'ok' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not hold sale');
+      setError(err instanceof Error ? err.message : 'No se pudo dejar la venta en espera');
     }
   };
 
   const openPay = () => {
-    // Cash starts empty so the numpad builds the tendered amount (not appends to total).
+    // En efectivo se empieza vacio para que el teclado arme el monto recibido, no el total.
     setPaid('');
     setPaymentType(1);
     setShowPay(true);
+  };
+
+  const closePay = () => {
+    setShowPay(false);
+    scanRef.current?.focus();
+  };
+
+  const choosePayment = (type: number) => {
+    setPaymentType(type);
+    if (type === 3) setPaid(total.toFixed(2));
+    else setPaid('');
   };
 
   const sanitizeTendered = (raw: string) => {
@@ -240,39 +275,36 @@ export default function TillView({
   };
 
   const completeSale = async () => {
+    if (paying) return;
     const paidNum = parseFloat(paid) || 0;
-    if (paidNum + 0.0001 < total) {
-      setError('Amount tendered is less than total');
+    if (Math.round(paidNum * 100) < Math.round(total * 100)) {
+      setError('El monto recibido es menor que el total');
       return;
     }
-    const changeAmt = Math.max(0, paidNum - total);
+    const changeAmt = Math.max(0, Math.round((paidNum - total) * 100) / 100);
     const body = buildTransaction(1, paidNum, changeAmt);
+    setPaying(true);
     try {
-      if (activeHoldId) {
-        await api.updateTransaction({ ...body, _id: activeHoldId, ref_number: '' });
-      } else {
-        await api.createTransaction(body);
-      }
+      await persistSale({ ...body, ref_number: '' });
       const lines = [
-        settings?.store || 'Store POS',
+        settings?.store || 'Punto de Venta',
         settings?.address_one || '',
         settings?.contact || '',
         '--------------------------------',
         ...cart.map(
           (i) =>
-            `${i.quantity} x ${i.name}`.padEnd(22) +
-            `${symbol}${(i.price * i.quantity).toFixed(2)}`
+            `${i.quantity} x ${i.name}`.padEnd(24) + money(i.price * i.quantity, symbol)
         ),
         '--------------------------------',
-        `Subtotal ${symbol}${subtotal.toFixed(2)}`,
-        taxRate ? `Tax ${taxRate}% ${symbol}${tax.toFixed(2)}` : '',
-        discount ? `Discount -${symbol}${Number(discount).toFixed(2)}` : '',
-        `TOTAL ${symbol}${total.toFixed(2)}`,
-        `${paymentType === 3 ? 'Card' : 'Cash'} ${symbol}${paidNum.toFixed(2)}`,
-        `Change ${symbol}${changeAmt.toFixed(2)}`,
-        `Till ${apiInfo?.till || 1} · ${user?.fullname || ''}`,
-        settings?.footer || 'Thank you',
-        new Date().toLocaleString(),
+        `Subtotal ${money(subtotal, symbol)}`,
+        taxRate ? `${settings?.tax || 'Impuesto'} ${taxRate}% ${money(tax, symbol)}` : '',
+        discount ? `Descuento -${money(Number(discount), symbol)}` : '',
+        `TOTAL ${money(total, symbol)}`,
+        `${paymentType === 3 ? 'Tarjeta' : 'Efectivo'} ${money(paidNum, symbol)}`,
+        `Cambio ${money(changeAmt, symbol)}`,
+        `Caja ${apiInfo?.till || 1} · ${user?.fullname || ''}`,
+        settings?.footer || 'Gracias por su compra',
+        new Date().toLocaleString('es-MX'),
       ]
         .filter(Boolean)
         .join('\n');
@@ -281,11 +313,64 @@ export default function TillView({
       setShowPay(false);
       await onRefresh();
       await refreshHolds();
+      toast(`Venta cobrada · Cambio ${money(changeAmt, symbol)}`, { tone: 'ok' });
       setTimeout(() => window.print(), 150);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sale failed');
+      setError(err instanceof Error ? err.message : 'No se pudo completar la venta');
+    } finally {
+      setPaying(false);
     }
   };
+
+  // Ultima version de los manejadores para los atajos globales sin re-suscribir en cada tecla.
+  const latest = useRef({ completeSale, canConfirm });
+  latest.current = { completeSale, canConfirm };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Ventas en espera o su confirmacion por encima del cobro: los atajos del cobro se apagan.
+      const layerAbovePay = showHolds || holdToDelete !== null;
+      if (e.key === 'F2') {
+        e.preventDefault();
+        if (cart.length && !showPay && !layerAbovePay) openPay();
+        return;
+      }
+      if (e.key === 'F4') {
+        e.preventDefault();
+        if (!showPay) openHolds();
+        return;
+      }
+      if (!showPay || layerAbovePay) return;
+      // Escape lo resuelve el propio modal (capa superior); aqui solo Enter y la rafaga del lector.
+      if (/^[\d.]$/.test(e.key)) {
+        const now = Date.now();
+        burst.current = now - lastDigitAt.current < 60 ? burst.current + 1 : 1;
+        lastDigitAt.current = now;
+        return;
+      }
+      if (e.key === 'Enter') {
+        // Enter mantenido: una sola confirmacion.
+        if (e.repeat) {
+          e.preventDefault();
+          return;
+        }
+        // Cancelar / Confirmar del pie responden solos a Enter.
+        const target = e.target as HTMLElement | null;
+        if (target?.closest?.('.modal-footer')) return;
+        // Tres o mas digitos seguidos y Enter en < 60 ms: es un lector de codigos, no el cajero.
+        if (burst.current >= 3 && Date.now() - lastDigitAt.current < 60) {
+          e.preventDefault();
+          burst.current = 0;
+          return;
+        }
+        // Cualquier otro boton con foco (billete, numpad, forma de pago) no debe re-dispararse.
+        e.preventDefault();
+        if (latest.current.canConfirm) latest.current.completeSale();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cart, showPay, showHolds, holdToDelete]);
 
   const openHolds = async () => {
     await refreshHolds();
@@ -293,46 +378,119 @@ export default function TillView({
   };
 
   const restoreHold = (order: Transaction) => {
+    cartEpoch.current += 1;
     setCart(order.items || []);
     setCustomerId(String(order.customer || '0'));
     setDiscount(order.discount || 0);
+    setShowDiscount(false);
     setActiveHoldId(order.id);
     setShowHolds(false);
     scanRef.current?.focus();
   };
 
   const discardHold = async (id: number) => {
-    if (!confirm('Delete this held sale?')) return;
-    await api.deleteTransaction(id);
-    await refreshHolds();
+    setDeletingHold(true);
+    try {
+      await api.deleteTransaction(id);
+      // Si era la venta que estaba retomada en el carrito, ya no existe: la siguiente venta se crea nueva.
+      if (activeHoldId === id) setActiveHoldId(null);
+      await refreshHolds();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar la venta en espera');
+    } finally {
+      setDeletingHold(false);
+      setHoldToDelete(null);
+    }
+  };
+
+  /** Limpiar desde el boton: reversible durante unos segundos. */
+  const clearCartWithUndo = () => {
+    if (!cart.length) return;
+    const snapshot = { cart, discount, customerId, activeHoldId };
+    clearCart();
+    const epoch = cartEpoch.current;
+    toast('Carrito vaciado', {
+      action: {
+        label: 'Deshacer',
+        onClick: () => {
+          if (cartEpoch.current !== epoch) {
+            toast('Ya no se puede deshacer: el carrito cambio');
+            return;
+          }
+          setCart(snapshot.cart);
+          setDiscount(snapshot.discount);
+          setCustomerId(snapshot.customerId);
+          setActiveHoldId(snapshot.activeHoldId);
+        },
+      },
+    });
+  };
+
+  const removeLine = (item: CartItem) => {
+    const epoch = cartEpoch.current;
+    setQty(item.id, 0);
+    toast(`${item.name} quitado del carrito`, {
+      action: {
+        label: 'Deshacer',
+        onClick: () => {
+          if (cartEpoch.current !== epoch) {
+            toast('Ya no se puede deshacer: el carrito cambio');
+            return;
+          }
+          setCart((prev) =>
+            prev.some((i) => i.id === item.id)
+              ? prev.map((i) => (i.id === item.id ? { ...i, quantity: i.quantity + item.quantity } : i))
+              : [...prev, item]
+          );
+        },
+      },
+    });
+  };
+
+  const showAllProducts = () => {
+    setQuery('');
+    setCategoryFilter('all');
+    scanRef.current?.focus();
+  };
+
+  const removeDiscount = () => {
+    setDiscount(0);
+    setShowDiscount(false);
+    scanRef.current?.focus();
   };
 
   return (
     <>
-      {error && (
-        <div className="error">
-          {error}{' '}
-          <button type="button" className="btn btn-ghost" onClick={() => setError(null)}>
-            dismiss
-          </button>
-        </div>
-      )}
-
       <div className="till">
         <section className="panel till-left">
           <div className="scan-bar">
-            <input
-              ref={scanRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onScan();
-              }}
-              placeholder="Scan barcode or search — Enter to add"
-              autoFocus
-            />
-            <button type="button" className="btn btn-primary" onClick={onScan}>
-              Add
+            <div className="scan-field">
+              <Icon name="search" />
+              <input
+                ref={scanRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onScan();
+                }}
+                placeholder="Escanea o busca un producto — Enter para agregar"
+                aria-label="Codigo de barras o busqueda"
+                autoFocus
+              />
+            </div>
+            {query.trim() && (
+              <button type="button" className="btn btn-ghost scan-add" onClick={onScan}>
+                Agregar
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-icon"
+              onClick={() => setShowCamera(true)}
+              title="Escanear con la camara"
+              aria-label="Escanear con la camara"
+            >
+              <Icon name="camera" />
             </button>
           </div>
           <div className="chips">
@@ -341,7 +499,7 @@ export default function TillView({
               className={`chip ${categoryFilter === 'all' ? 'active' : ''}`}
               onClick={() => setCategoryFilter('all')}
             >
-              All
+              Todas
             </button>
             {categories.map((c) => (
               <button
@@ -356,7 +514,7 @@ export default function TillView({
           </div>
           <div className="product-grid">
             {filteredProducts.map((p) => {
-              const stock = stockLabel(p);
+              const overlay = stockOverlay(p);
               return (
                 <button
                   key={p.id}
@@ -365,33 +523,61 @@ export default function TillView({
                   onClick={() => addToCart(p)}
                   disabled={!!p.stock && p.quantity <= 0}
                 >
-                  {p.img ? (
-                    <div className="product-thumb-wrap">
+                  <div className="product-thumb-wrap">
+                    {p.img ? (
                       <img className="product-thumb" src={`${uploads}/${p.img}`} alt="" />
-                    </div>
-                  ) : (
-                    <div className="product-thumb-wrap">
-                      <div className="product-thumb placeholder" />
-                    </div>
-                  )}
+                    ) : (
+                      <div className="product-thumb placeholder">
+                        <Icon name="box" size={24} />
+                      </div>
+                    )}
+                    {overlay && <span className={overlay.className}>{overlay.text}</span>}
+                  </div>
                   <div className="product-tile-body">
                     <strong>{p.name}</strong>
-                    <span className="price">
-                      {symbol}
-                      {Number(p.price).toFixed(2)}
-                    </span>
-                    <span className={stock.className}>{stock.text}</span>
+                    <span className="price">{money(Number(p.price), symbol)}</span>
                   </div>
                 </button>
               );
             })}
-            {!filteredProducts.length && (
-              <div className="empty">No products here. Add items in Catalog.</div>
-            )}
+            {!filteredProducts.length &&
+              (products.length === 0 ? (
+                <EmptyState
+                  compact
+                  icon="box"
+                  title="Todavia no hay productos"
+                  hint="Agregalos en Catalogo para verlos aqui"
+                />
+              ) : (
+                <EmptyState
+                  compact
+                  icon="search"
+                  title={
+                    query.trim()
+                      ? `Sin resultados para "${query.trim()}"`
+                      : `Sin productos en ${categoryFilter}`
+                  }
+                  hint={query.trim() ? 'Revisa el codigo o el nombre' : 'Esta categoria no tiene productos'}
+                  action={
+                    <button type="button" className="btn btn-sm" onClick={showAllProducts}>
+                      Ver todos
+                    </button>
+                  }
+                />
+              ))}
           </div>
         </section>
 
         <section className="panel till-right">
+          {error && (
+            <div className="error" role="alert">
+              {error}
+              <button type="button" className="btn btn-ghost" onClick={() => setError(null)}>
+                cerrar
+              </button>
+            </div>
+          )}
+
           <div className="cart-head">
             <CustomerSelect
               customers={customers}
@@ -400,7 +586,7 @@ export default function TillView({
               onCustomersChanged={onRefresh}
             />
             <button type="button" className="btn" onClick={openHolds}>
-              Held {holdCount ? `(${holdCount})` : ''}
+              En espera {holdCount ? `(${holdCount})` : ''}
               <span className="kbd">F4</span>
             </button>
           </div>
@@ -410,85 +596,126 @@ export default function TillView({
               <div className="cart-row" key={item.id}>
                 <div>
                   <strong>{item.name}</strong>
-                  <div className="muted">
-                    {symbol}
-                    {item.price.toFixed(2)} each
+                  <div className="muted num">
+                    {item.quantity} x {money(item.price, symbol)}
                   </div>
                 </div>
                 <div className="qty">
-                  <button type="button" onClick={() => setQty(item.id, item.quantity - 1)}>
-                    −
+                  <button
+                    type="button"
+                    onClick={() => setQty(item.id, item.quantity - 1)}
+                    aria-label="Quitar una pieza"
+                  >
+                    <Icon name="minus" size={16} />
                   </button>
                   <span>{item.quantity}</span>
-                  <button type="button" onClick={() => setQty(item.id, item.quantity + 1)}>
-                    +
+                  <button
+                    type="button"
+                    onClick={() => setQty(item.id, item.quantity + 1)}
+                    aria-label="Agregar una pieza"
+                  >
+                    <Icon name="plus" size={16} />
                   </button>
                 </div>
-                <strong>
-                  {symbol}
-                  {(item.price * item.quantity).toFixed(2)}
-                </strong>
+                <span className="line-total num">{money(item.price * item.quantity, symbol)}</span>
+                <button
+                  type="button"
+                  className="btn btn-icon btn-ghost btn-sm remove"
+                  onClick={() => removeLine(item)}
+                  aria-label={`Quitar ${item.name}`}
+                  title="Quitar del carrito"
+                >
+                  <Icon name="x" size={16} />
+                </button>
               </div>
             ))}
             {!cart.length && (
-              <div className="empty">Cart empty — scan or tap a product</div>
+              <EmptyState
+                compact
+                icon="cash"
+                title="Carrito vacio"
+                hint="Escanea un codigo o toca un producto"
+              />
             )}
           </div>
 
           <div className="totals">
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label>Discount ({symbol})</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={discount}
-                onChange={(e) => setDiscount(Number(e.target.value))}
-              />
-            </div>
+            {showDiscount ? (
+              <div className="discount-row">
+                <div className="field">
+                  <label htmlFor="till-discount">Descuento ({symbol})</label>
+                  <input
+                    id="till-discount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={discount}
+                    onChange={(e) => setDiscount(Number(e.target.value))}
+                    autoFocus
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-icon btn-ghost"
+                  onClick={removeDiscount}
+                  aria-label="Quitar descuento"
+                  title="Quitar descuento"
+                >
+                  <Icon name="x" size={16} />
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="link" onClick={() => setShowDiscount(true)}>
+                <Icon name="percent" size={14} />
+                {discountAmount > 0 ? 'Editar descuento' : 'Agregar descuento'}
+              </button>
+            )}
             <div className="row">
               <span>
-                {itemCount} item{itemCount === 1 ? '' : 's'}
+                {itemCount} articulo{itemCount === 1 ? '' : 's'}
               </span>
-              <span>
-                {symbol}
-                {subtotal.toFixed(2)}
-              </span>
+              <span className="num">{money(subtotal, symbol)}</span>
             </div>
+            {discountAmount > 0 && (
+              <div className="row discount">
+                <span>Descuento</span>
+                <span className="num">-{money(discountAmount, symbol)}</span>
+              </div>
+            )}
             {!!taxRate && (
               <div className="row">
-                <span>Tax {taxRate}%</span>
                 <span>
-                  {symbol}
-                  {tax.toFixed(2)}
+                  {settings?.tax || 'Impuesto'} {taxRate}%
                 </span>
+                <span className="num">{money(tax, symbol)}</span>
               </div>
             )}
             <div className="row grand">
               <span>Total</span>
-              <span>
-                {symbol}
-                {total.toFixed(2)}
-              </span>
+              <span className="num">{money(total, symbol)}</span>
             </div>
           </div>
 
           <div className="cart-actions">
-            <button type="button" className="btn" onClick={clearCart} disabled={!cart.length}>
-              Clear
-            </button>
-            <button type="button" className="btn" onClick={holdSale} disabled={!cart.length}>
-              Hold
-            </button>
             <button
               type="button"
               className="btn btn-primary btn-lg pay"
               onClick={openPay}
               disabled={!cart.length}
             >
-              Charge {symbol}
-              {total.toFixed(2)}
+              Cobrar {money(total, symbol)}
               <span className="kbd">F2</span>
+            </button>
+            <button type="button" className="btn" onClick={holdSale} disabled={!cart.length}>
+              Dejar en espera
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={clearCartWithUndo}
+              disabled={!cart.length}
+            >
+              Limpiar
             </button>
           </div>
         </section>
@@ -499,100 +726,148 @@ export default function TillView({
       </pre>
 
       <Modal
-        title="Payment"
+        title="Cobro"
         open={showPay}
-        onClose={() => setShowPay(false)}
+        onClose={paying ? () => undefined : closePay}
         compact
         footer={
           <>
-            <button type="button" className="btn" onClick={() => setShowPay(false)}>
-              Cancel
+            <button type="button" className="btn btn-ghost" onClick={closePay} disabled={paying}>
+              Cancelar
             </button>
-            <button type="button" className="btn btn-primary" onClick={completeSale}>
-              Pay
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={completeSale}
+              disabled={!canConfirm}
+            >
+              {paying ? 'Cobrando…' : 'Confirmar cobro'}
             </button>
           </>
         }
       >
-        <div className="field">
-          <label>Method</label>
-          <select
-            value={paymentType}
-            onChange={(e) => {
-              const type = Number(e.target.value);
-              setPaymentType(type);
-              if (type === 3) setPaid(total.toFixed(2));
-              else setPaid('');
-            }}
-          >
-            <option value={1}>Cash</option>
-            <option value={3}>Card</option>
-          </select>
-        </div>
         <div className="pay-due">
-          Due {symbol}
-          {total.toFixed(2)}
+          <span className="label">Total a cobrar</span>
+          <strong>{money(total, symbol)}</strong>
         </div>
-        <div className="field">
-          <label>Tendered</label>
-          <input
-            value={paid}
-            onChange={(e) => setPaid(sanitizeTendered(e.target.value))}
-            placeholder={paymentType === 1 ? 'Enter amount received' : total.toFixed(2)}
-            inputMode="decimal"
-            autoFocus
-            readOnly={paymentType === 3}
-          />
+        <div className="pay-methods" role="group" aria-label="Forma de pago">
+          <button
+            type="button"
+            className={`btn ${paymentType === 1 ? 'active' : ''}`}
+            onClick={() => choosePayment(1)}
+            aria-pressed={paymentType === 1}
+          >
+            <Icon name="cash" size={16} />
+            Efectivo
+          </button>
+          <button
+            type="button"
+            className={`btn ${paymentType === 3 ? 'active' : ''}`}
+            onClick={() => choosePayment(3)}
+            aria-pressed={paymentType === 3}
+          >
+            <Icon name="card" size={16} />
+            Tarjeta
+          </button>
         </div>
-        {paymentType === 1 && (
-          <PaymentPad value={paid} onChange={setPaid} due={total} symbol={symbol} />
+        {paymentType === 1 ? (
+          <>
+            <div className="field">
+              <label htmlFor="till-tendered">Recibido</label>
+              <input
+                id="till-tendered"
+                value={paid}
+                onChange={(e) => setPaid(sanitizeTendered(e.target.value))}
+                placeholder="Monto recibido"
+                inputMode="decimal"
+                className="num"
+                autoFocus
+              />
+            </div>
+            <PaymentPad value={paid} onChange={setPaid} due={total} symbol={symbol} />
+          </>
+        ) : (
+          <p className="pay-card-note muted">Se cobrara el importe exacto con tarjeta</p>
         )}
-        <p className="pay-change">
-          {(parseFloat(paid) || 0) + 0.0001 < total ? 'Still due' : 'Change'}{' '}
-          <strong>
-            {symbol}
-            {Math.abs((parseFloat(paid) || 0) - total).toFixed(2)}
-          </strong>
+        <p className={`pay-change ${enough ? '' : 'due'}`}>
+          {enough ? 'Cambio' : 'Falta'}
+          <strong>{money(Math.abs(tendered - total), symbol)}</strong>
         </p>
       </Modal>
 
-      <Modal title="Held sales" open={showHolds} onClose={() => setShowHolds(false)} wide>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Ref</th>
-              <th>Customer</th>
-              <th>Items</th>
-              <th>Total</th>
-              <th>When</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {holds.map((h) => (
-              <tr key={h.id}>
-                <td>{h.ref_number || h.id}</td>
-                <td>{h.customer_name}</td>
-                <td>{(h.items || []).reduce((n, i) => n + i.quantity, 0)}</td>
-                <td>
-                  {symbol}
-                  {Number(h.total).toFixed(2)}
-                </td>
-                <td>{new Date(h.date).toLocaleString()}</td>
-                <td>
-                  <button type="button" className="btn btn-primary" onClick={() => restoreHold(h)}>
-                    Resume
-                  </button>{' '}
-                  <button type="button" className="btn btn-danger" onClick={() => discardHold(h.id)}>
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!holds.length && <div className="empty">No held sales</div>}
+      <Modal title="Ventas en espera" open={showHolds} onClose={() => setShowHolds(false)} wide>
+        {holds.length ? (
+          <div className="table-wrap">
+            <table className="table compact holds-table">
+              <thead>
+                <tr>
+                  <th>Ref</th>
+                  <th>Cliente</th>
+                  <th className="num">Articulos</th>
+                  <th className="num">Total</th>
+                  <th>Cuando</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {holds.map((h) => (
+                  <tr key={h.id}>
+                    <td>{h.ref_number || h.id}</td>
+                    <td>{h.customer_name}</td>
+                    <td className="num">{(h.items || []).reduce((n, i) => n + i.quantity, 0)}</td>
+                    <td className="num">{money(Number(h.total), symbol)}</td>
+                    <td>{new Date(h.date).toLocaleString('es-MX')}</td>
+                    <td className="row-actions">
+                      <button type="button" className="btn btn-sm" onClick={() => restoreHold(h)}>
+                        Retomar
+                      </button>
+                      <Menu
+                        label="Mas acciones"
+                        items={[
+                          {
+                            label: 'Eliminar',
+                            icon: 'trash',
+                            danger: true,
+                            onSelect: () => setHoldToDelete(h.id),
+                          },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            compact
+            icon="pause"
+            title="No hay ventas en espera"
+            hint="Usa Dejar en espera para guardar un carrito y retomarlo despues"
+          />
+        )}
       </Modal>
+
+      <ConfirmDialog
+        open={holdToDelete !== null}
+        title="Eliminar la venta en espera?"
+        message="El carrito guardado se perdera y no se podra retomar."
+        confirmLabel="Eliminar"
+        danger
+        busy={deletingHold}
+        onConfirm={() => {
+          if (holdToDelete !== null) discardHold(holdToDelete);
+        }}
+        onCancel={() => setHoldToDelete(null)}
+      />
+
+      <BarcodeScanner
+        open={showCamera}
+        onClose={() => setShowCamera(false)}
+        onDetected={(code) => addByCode(code)}
+        title="Escanear producto"
+        continuous
+      />
     </>
   );
 }

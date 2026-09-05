@@ -1,0 +1,24 @@
+/* Catalogo: tabla a ancho completo, formulario en panel lateral y barra de
+   seleccion flotante. Solo estilos de esta pantalla; los tokens viven en index.css. */
+
+.catalog-card { padding: 0; overflow: hidden; }
+.catalog-card .table-wrap { overflow: auto; }
+
+.catalog-table th:first-child, .catalog-table td:first-child { padding-left: var(--sp-5); }
+.catalog-table th:last-child, .catalog-table td:last-child { padding-right: var(--sp-4); }
+.catalog-table .col-check { width: 36px; }
+.catalog-table .col-thumb { width: 52px; }
+.catalog-table td.cell-check { cursor: default; }
+/* En la tabla la existencia es un numero normal; solo cambia el color si esta baja. */
+.catalog-table .stock-badge { font-size: inherit; color: inherit; font-weight: inherit; }
+.catalog-table .stock-badge.low { color: var(--warn); font-weight: 600; }
+.catalog-table .stock-badge.out { color: var(--danger); font-weight: 600; }
+
+/* Barra de seleccion (estilo base en index.css): aparece solo cuando hay filas marcadas */
+.catalog .bulk-bar { z-index: 2; }
+.catalog .bulk-bar strong { font-weight: 600; margin-right: var(--sp-2); }
+
+/* Formulario del producto dentro del panel lateral */
+.catalog-form .section-title { margin-top: var(--sp-5); }
+.catalog-form .section-title:first-child { margin-top: 0; }
+.catalog-form .field-row.cat-price { grid-template-columns: 1fr 140px; }

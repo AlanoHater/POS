@@ -75,7 +75,7 @@ router.post('/seed', requireAnyPerm('perm_products', 'perm_settings'), (_req, re
   res.json({
     ok: true,
     ...result,
-    message: `Added ${result.productsAdded} products, ${result.categoriesAdded} categories, ${result.customersAdded} customers`,
+    message: `Se agregaron ${result.productsAdded} productos, ${result.categoriesAdded} categorias y ${result.customersAdded} clientes`,
   });
 });
 
@@ -121,7 +121,7 @@ router.post('/clear', requireAnyPerm('perm_products', 'perm_settings'), (req, re
   res.json({
     ok: true,
     deleted: counts,
-    message: 'Catalog and related demo data cleared',
+    message: 'Se borro el catalogo y los datos de demostracion',
   });
 });
 

@@ -16,6 +16,18 @@ function decrementInventory(items, db) {
   }
 }
 
+/** Devuelve al inventario las piezas de una venta cancelada. */
+function restoreInventory(items, db) {
+  for (const item of items || []) {
+    const id = parseInt(item.id ?? item._id, 10);
+    const qty = parseInt(item.quantity, 10) || 0;
+    if (!id || !qty) continue;
+    const product = db.prepare('SELECT id, quantity, stock FROM products WHERE id = ?').get(id);
+    if (!product || product.stock === 0) continue;
+    db.prepare('UPDATE products SET quantity = ? WHERE id = ?').run((product.quantity || 0) + qty, id);
+  }
+}
+
 router.get('/all', requirePerm('perm_transactions'), (_req, res) => {
   const rows = getDb().prepare('SELECT * FROM transactions ORDER BY date DESC').all();
   res.json(rows.map(mapTransaction));
@@ -47,18 +59,25 @@ router.get('/by-date', requirePerm('perm_transactions'), (req, res) => {
   const startDate = new Date(String(req.query.start || ''));
   const endDate = new Date(String(req.query.end || ''));
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-    return res.status(400).json({ error: 'Invalid start or end date' });
+    return res.status(400).json({ error: 'Fecha inicial o final no valida' });
   }
 
   const start = startDate.toISOString();
   const end = endDate.toISOString();
   const statusRaw = parseInt(String(req.query.status), 10);
+  // -1 = todos los estados (pagadas, en espera y canceladas).
   const status = Number.isFinite(statusRaw) ? statusRaw : 1;
+  const allStatuses = status === -1;
   const userId = parseInt(String(req.query.user), 10) || 0;
   const till = parseInt(String(req.query.till), 10) || 0;
 
-  let sql = `SELECT * FROM transactions WHERE date >= ? AND date <= ? AND status = ?`;
-  const params = [start, end, status];
+  let sql = `SELECT * FROM transactions WHERE date >= ? AND date <= ?`;
+  const params = [start, end];
+
+  if (!allStatuses) {
+    sql += ' AND status = ?';
+    params.push(status);
+  }
 
   if (userId) {
     sql += ' AND user_id = ?';
@@ -130,6 +149,8 @@ router.put('/new', (req, res) => {
   const db = getDb();
   const update = db.transaction(() => {
     const existing = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
+    // Actualizar una venta borrada (p. ej. una espera eliminada desde otra caja) no debe fingir exito.
+    if (!existing) return false;
     db.prepare(
       `UPDATE transactions SET
         ref_number = ?, customer = ?, customer_name = ?, status = ?, user_id = ?, user_name = ?, till = ?,
@@ -155,19 +176,75 @@ router.put('/new', (req, res) => {
       id
     );
 
-    // Decrement stock when completing a previously unpaid/hold order
-    if (existing && existing.status === 0 && status === 1 && paid >= total) {
+    // Descuenta inventario al cobrar una venta que estaba en espera o sin pagar.
+    if (existing.status === 0 && status === 1 && paid >= total) {
       decrementInventory(items, db);
     }
+    return true;
   });
 
-  update();
+  if (!update()) {
+    return res.status(404).json({ error: 'La venta ya no existe' });
+  }
   res.sendStatus(200);
+});
+
+/**
+ * Cancela (anula) una venta sin borrarla: queda en el historial con estado 2
+ * y, si ya habia descontado inventario, las piezas se devuelven al stock.
+ */
+router.post('/cancel', requirePerm('perm_transactions'), (req, res) => {
+  const id = parseInt(req.body?.orderId ?? req.body?._id, 10);
+  const reason = String(req.body?.reason ?? '').trim();
+
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: 'Venta no valida' });
+  }
+
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
+  if (!existing) {
+    return res.status(404).json({ error: 'La venta no existe' });
+  }
+  if (existing.status === 2) {
+    return res.status(400).json({ error: 'La venta ya estaba cancelada' });
+  }
+
+  let items = [];
+  try {
+    items = JSON.parse(existing.items_json || '[]');
+  } catch {
+    items = [];
+  }
+
+  const cancelledBy = String(req.body?.user ?? req.user?.username ?? '');
+  const run = db.transaction(() => {
+    // Solo se repone lo que realmente se descontó: las ventas pagadas (estado 1).
+    if (existing.status === 1) restoreInventory(items, db);
+    db.prepare(
+      `UPDATE transactions
+         SET status = 2, cancelled_at = ?, cancelled_by = ?, cancel_reason = ?
+       WHERE id = ?`
+    ).run(new Date().toISOString(), cancelledBy, reason, id);
+  });
+  run();
+
+  const row = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
+  res.json({ ok: true, transaction: mapTransaction(row) });
 });
 
 router.post('/delete', (req, res) => {
   const orderId = parseInt(req.body?.orderId ?? req.body?._id, 10);
-  getDb().prepare('DELETE FROM transactions WHERE id = ?').run(orderId);
+  const db = getDb();
+  const existing = db.prepare('SELECT status FROM transactions WHERE id = ?').get(orderId);
+
+  // Cualquier cajero puede descartar una venta en espera (estado 0) desde su caja,
+  // pero borrar una venta ya cerrada del historial exige el permiso de transacciones.
+  if (existing && existing.status !== 0 && !(req.user?.id === 1 || req.user?.perm_transactions)) {
+    return res.status(403).json({ error: 'No tienes permiso para borrar ventas del historial' });
+  }
+
+  db.prepare('DELETE FROM transactions WHERE id = ?').run(orderId);
   res.sendStatus(200);
 });
 

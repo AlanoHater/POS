@@ -1,0 +1,31 @@
+/* Historial de ventas: barra de herramientas, resumen plano y tabla dentro de una tarjeta. */
+
+.history { display: flex; flex-direction: column; }
+
+/* Los chips de periodo viven dentro de la barra: sin relleno ni borde propios. */
+.history .toolbar .chips { padding: 0; border: 0; }
+.history .toolbar .segmented { flex-shrink: 0; }
+.history .toolbar-search { flex: 1; max-width: 360px; }
+
+/* Aviso discreto mientras se recargan filas ya visibles */
+.history-loading { margin-left: auto; font-size: var(--fs-sm); color: var(--ink-3); min-width: 90px; text-align: right; }
+
+/* Resumen: cuatro cifras en texto plano, sin lineas. */
+.history .history-summary {
+  border-bottom: 0;
+  padding: var(--sp-1) var(--sp-1) var(--sp-4);
+  margin-bottom: 0;
+}
+.history-summary strong.warn { color: var(--warn); }
+
+/* Tabla */
+.history-card { padding: var(--sp-1) var(--sp-3) var(--sp-2); }
+.history-card .table td strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+.history-card .row-actions .btn + .btn { margin-left: var(--sp-1); }
+
+/* Detalle en panel lateral */
+.history-detail .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.history-detail .totals {
+  margin-top: var(--sp-4);
+  padding: var(--sp-4) 0 0;
+}
